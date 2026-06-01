@@ -43,6 +43,21 @@ from compliance.checks import (
 from compliance.ingest import split_notes
 from compliance.judges.base import JudgeAnswer
 from compliance.judges.null import NullJudge
+
+
+class SkipJudge:
+    """
+    Judge that immediately returns 'skipped' without calling any LLM.
+    Used when --no-ai is set so judgment-based checks complete instantly
+    and the card clearly indicates they were not evaluated.
+    """
+    name = "skip"
+
+    def evaluate(self, *, question: str, context: str, hint: str = "") -> JudgeAnswer:
+        return JudgeAnswer(
+            verdict="skipped",
+            rationale="AI judge disabled (--no-ai). Re-run without --no-ai to evaluate.",
+        )
 from compliance.models import ContextBundle
 from compliance import config as cfg
 
@@ -776,7 +791,8 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px;
         margin-bottom: 4px; padding: 6px 8px; cursor: pointer;
         transition: box-shadow .12s, border-color .12s; }
 .card:hover { box-shadow: 0 1px 6px rgba(0,0,0,.10); border-color: #aac; }
-.card.na { background: #f6f6f6; border-color: #e8e8e8; cursor: default; opacity: .5; }
+.card.na      { background: #f6f6f6; border-color: #e8e8e8; cursor: default; opacity: .5; }
+.card.skipped { background: #f4f4f4; border: 1px dashed #bbb; cursor: default; opacity: .65; }
 .card-top { display: flex; align-items: center; gap: 6px; }
 .card-id { font-size: 10px; font-weight: 700; color: #888; min-width: 32px; }
 .card-title { flex: 1; font-size: 11px; color: #333; line-height: 1.3; }
@@ -786,6 +802,7 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px;
 .badge-fail           { background: #c0392b; }
 .badge-manual_review  { background: #e67e22; }
 .badge-not_applicable { background: #aaa; }
+.badge-skipped        { background: #888; border: 1px dashed #555; color: #fff; }
 .card-rationale { font-size: 10px; color: #777; margin-top: 3px; line-height: 1.3;
                   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
@@ -1204,9 +1221,10 @@ function selectPdf(name, el) {
     if (!acc) return;
 
     // Append the card to the note's inner div
-    const isNA = card.applicability === null;
+    const isNA      = card.applicability === null;
+    const isSkipped = card.verdict === "skipped";
     const div  = document.createElement("div");
-    div.className = "card" + (isNA ? " na" : "");
+    div.className = "card" + (isNA ? " na" : isSkipped ? " skipped" : "");
     div.innerHTML = `
       <div class="card-top">
         <span class="card-id">${card.standard_id}</span>
@@ -1215,7 +1233,7 @@ function selectPdf(name, el) {
       </div>
       <div class="card-rationale">${escHtml(card.rationale)}</div>`;
 
-    if (!isNA) {
+    if (!isNA && card.verdict !== "skipped") {
       // card click needs the full note object — stash card in noteObjects for later
       div.addEventListener("click", () => {
         const n = noteObjects[ni];
@@ -1330,7 +1348,7 @@ function toggleAccordion(id, jumpPage) {
 
 // ── Results ───────────────────────────────────────────────────────────────────
 function verdictBadge(verdict) {
-  const labels = { pass:"PASS", fail:"FAIL", manual_review:"REVIEW", not_applicable:"N/A" };
+  const labels = { pass:"PASS", fail:"FAIL", manual_review:"REVIEW", not_applicable:"N/A", skipped:"SKIPPED" };
   return `<span class="badge badge-${verdict}">${labels[verdict] || verdict.toUpperCase()}</span>`;
 }
 
@@ -1369,9 +1387,10 @@ function renderResults(notes) {
     inner.className = "acc-body-inner";
 
     note.cards.forEach(card => {
-      const isNA = card.applicability === null;
+      const isNA      = card.applicability === null;
+      const isSkipped = card.verdict === "skipped";
       const div  = document.createElement("div");
-      div.className = "card" + (isNA ? " na" : "");
+      div.className = "card" + (isNA ? " na" : isSkipped ? " skipped" : "");
       div.innerHTML = `
         <div class="card-top">
           <span class="card-id">${card.standard_id}</span>
@@ -1379,7 +1398,7 @@ function renderResults(notes) {
           <span class="card-title">${escHtml(card.title)}</span>
         </div>
         <div class="card-rationale">${escHtml(card.rationale)}</div>`;
-      if (!isNA) div.addEventListener("click", () => openModal(note, card));
+      if (!isNA && card.verdict !== "skipped") div.addEventListener("click", () => openModal(note, card));
       inner.appendChild(div);
     });
 
@@ -2101,6 +2120,10 @@ def main() -> None:
         "--ollama-url", default="http://localhost:11434",
         help="Ollama base URL (default: http://localhost:11434)",
     )
+    parser.add_argument(
+        "--no-ai", action="store_true",
+        help="Skip all LLM judge calls; judgment-based checks return 'skipped' instantly",
+    )
     args = parser.parse_args()
 
     source_dir = Path(args.input)
@@ -2126,6 +2149,10 @@ def main() -> None:
             inner = NullJudge()
     else:
         inner = NullJudge()
+
+    if args.no_ai:
+        inner = SkipJudge()
+        print("AI judge disabled (--no-ai). Judgment-based checks will return 'skipped'.")
 
     app = create_app(source_dir, inner)
     print(f"Standards Trainer — http://{args.host}:{args.port}")
