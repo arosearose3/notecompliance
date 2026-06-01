@@ -21,15 +21,26 @@ from compliance.extract.sections import extract_sections
 from compliance.models import HeaderFields, Note, Page
 
 RE_PAGE_NUM = re.compile(r"Page\s+(\d+)\s+of\s+(\d+)\s*$", re.MULTILINE)
-RE_NOTE_TYPE_HEADER = re.compile(
-    r"^((?:[A-Z][a-zA-Z]+ )*(?:[A-Z][a-zA-Z]+)\s+Note)\s*$",
-    re.MULTILINE,
-)
 
 
 def _extract_note_type_header(text: str) -> str:
-    m = RE_NOTE_TYPE_HEADER.search(text)
-    return m.group(1).strip() if m else ""
+    """
+    Return the document-type string from the first page of a note.
+
+    The EHR places the document type on the very first non-empty line
+    (e.g. "Progress Note", "Consultation Note", "Treatment Plan",
+    "Intake Note").  We return that line verbatim so assign_type() can
+    match it against its full pattern table.
+
+    The old approach used a regex that required the line to end with the
+    word "Note", which silently dropped "Treatment Plan" and any future
+    document types that don't follow that convention.
+    """
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
 
 
 def split_notes(pdf_path: Path) -> list[Note]:
