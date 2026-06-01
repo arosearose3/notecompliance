@@ -171,6 +171,216 @@ STANDARD_TITLES: dict[str, str] = {
 
 STANDARD_ORDER = list(STANDARD_TITLES.keys())
 
+# Verbatim payer language from Record Standards.txt, mapped to each standard ID.
+STANDARD_TEXT: dict[str, str] = {
+    "A1": (
+        "The member's name or identification number on each page of the record."
+    ),
+    "A2": (
+        "The member's address; employer or school; home and work telephone numbers, "
+        "including emergency contacts; marital or legal status; appropriate consent "
+        "forms; and guardianship information."
+    ),
+    "A3": (
+        "The date of service, either start and stop time or total time in session "
+        "(for time-based services), notation of session attendees, diagnosis, services "
+        "rendered, the rendering clinician's name, professional degree, license and "
+        "relevant identification number as applicable."
+    ),
+    "A4": (
+        "For group sessions, the subject covered in the session on the date of service "
+        "must be indicated."
+    ),
+    "A5": (
+        "For family sessions, list everyone who attended the session and relationship "
+        "to each other."
+    ),
+    "B1": (
+        "Treatment record entries should be made on the date services are rendered and "
+        "include the date of service. If an entry is made more than 24 hours after the "
+        "service was rendered, the entry should include the date of service, date of "
+        "the entry and a notation that it is a late entry."
+    ),
+    "B2": (
+        "Clear and uniform modifications. Any error is to be lined through so that it "
+        "can still be read, then dated and initialed by the person making the change."
+    ),
+    "C1": (
+        "Clear documentation of medication allergies, adverse reactions and relevant "
+        "medical conditions. If the member has no relevant medical history, this should "
+        "be prominently noted."
+    ),
+    "C2a": (
+        "Standing, as needed (PRN) and immediate (STAT) orders for all prescription "
+        "and over-the-counter medications."
+    ),
+    "C2b": (
+        "The date medications are prescribed along with the dosage and frequency."
+    ),
+    "C2c": (
+        "Informed member consent for medication, including the member's understanding "
+        "of the potential benefits, risks, side effects and alternatives to the "
+        "medications."
+    ),
+    "C2d": (
+        "Changes or rationale for lack of changes in medication and/or dosage should "
+        "be clearly documented along with the clinical rationale for the changes."
+    ),
+    "C2e": (
+        "Discharge summaries should specify all medications/dosages at the time of "
+        "discharge."
+    ),
+    "D1": (
+        "A clear summary of presenting problems, the results of mental status exam(s), "
+        "relevant psychological and social conditions affecting the member's medical "
+        "and psychiatric status, and the source of such information."
+    ),
+    "D2": (
+        "Prominent documentation (assessment and reassessment) of special status "
+        "situations, when present, including, but not limited to, imminent risk of "
+        "harm, suicidal or homicidal ideation, self-injurious behaviors, or elopement "
+        "potential (for all overnight levels of care). It is also important to document "
+        "the absence of such conditions."
+    ),
+    "D3": (
+        "A medical and psychiatric history including previous treatment dates, clinician "
+        "or facility identification, therapeutic interventions and responses, sources of "
+        "clinical data and relevant family information."
+    ),
+    "D4": (
+        "The behavioral health history includes an assessment of any history of abuse "
+        "the member has experienced."
+    ),
+    "D5": (
+        "For adolescents, the assessment documents a sexual behavior history."
+    ),
+    "D6": (
+        "For children and adolescents, past medical and psychiatric history should "
+        "include prenatal and perinatal events, along with a complete developmental "
+        "history (physical, psychological, social, intellectual and academic)."
+    ),
+    "D7": (
+        "For members 12 years of age and older, documentation includes past and present "
+        "use of nicotine or alcohol, as well as illicit drugs, prescribed or "
+        "over-the-counter medications."
+    ),
+    "D8": (
+        "Documentation of a DSM diagnosis consistent with the presenting problem(s), "
+        "history, mental status examination and other assessment data."
+    ),
+    "D9": (
+        "Medical conditions, psychosocial and environmental factors and functional "
+        "impairment(s) that support understanding of mental health condition. This can "
+        "include elements of a physical examination, writing a prescription or modifying "
+        "psychiatric treatment."
+    ),
+    "E1": (
+        "Specific symptoms and problems related to the identified diagnosis of the "
+        "treatment episode."
+    ),
+    "E2": (
+        "Critical problems that will be the focus of this episode of care are "
+        "prioritized; any additional problems that are deferred should be noted as such."
+    ),
+    "E3": (
+        "Relates the recommended level of care to the level of impairment."
+    ),
+    "E4": (
+        "Member (and, when indicated, family) involvement in treatment planning."
+    ),
+    "E5": (
+        "Treatment goals must be specific, behavioral, measurable and realistic."
+    ),
+    "E6": (
+        "Treatment goals must include a time frame for goal attainment."
+    ),
+    "E7": (
+        "Progress or lack of progress towards treatment goals."
+    ),
+    "E8": (
+        "Rationale for the estimated length of the treatment episode."
+    ),
+    "E9": (
+        "Updates to the treatment plan whenever goals are achieved or new problems "
+        "are identified."
+    ),
+    "E10": (
+        "If the member is not progressing towards specified goals, the treatment plan "
+        "should be re-evaluated to address the lack of progress and modify goals and "
+        "interventions as needed."
+    ),
+    "F1": (
+        "Progress notes include the signature of the practitioner rendering services."
+    ),
+    "F2": (
+        "Progress notes include the date of service."
+    ),
+    "F3": (
+        "If provided through telehealth, documentation of the use of this technology."
+    ),
+    "F4": (
+        "Member strengths and limitations in achieving treatment plan goals and "
+        "objectives."
+    ),
+    "F5": (
+        "Treatment interventions that are consistent with those goals and objectives "
+        "noted in the treatment plan."
+    ),
+    "F6": (
+        "Dates of follow up visits."
+    ),
+    "F7": (
+        "Documentation of missed appointments, including efforts made to outreach "
+        "the member."
+    ),
+    "F8": (
+        "For time-based services only, either start and stop time or total time in "
+        "session."
+    ),
+    "G1": (
+        "Documentation of on-going discharge planning (beginning at the initiation of "
+        "treatment) includes the following elements: criteria for discharge; "
+        "identification of barriers to completion of treatment and interventions to "
+        "address them; identification of support systems or lack of support systems."
+    ),
+    "H1": (
+        "A discharge summary is completed at the end of the treatment episode that "
+        "includes the reason for treatment episode."
+    ),
+    "H2": (
+        "Summary of the treatment goals that were achieved or reasons the goals were "
+        "not achieved."
+    ),
+    "H3": (
+        "Specific follow up activities/aftercare plan."
+    ),
+    "I1": (
+        "Documentation of coordination of care activities between the treating clinician "
+        "or facility and other behavioral health or medical clinicians, facilities or "
+        "consultants. If the member refuses to allow coordination of care to occur, this "
+        "refusal and the reason for the refusal must be documented."
+    ),
+    "I2": (
+        "Coordination of care should occur: at the time of intake; during treatment; "
+        "at the time of discharge or termination of care; at the point of transition "
+        "between levels of care; and at any other point in treatment that may be "
+        "appropriate."
+    ),
+    "J1": (
+        "Documentation of referrals to other clinicians, services, community resources, "
+        "and/or wellness and prevention programs."
+    ),
+    "K1": (
+        "Telehealth Services: If the service is being provided virtually, this must be "
+        "noted in the treatment record."
+    ),
+    "K2": (
+        "Many states have specific documentation requirements for telehealth services. "
+        "Please review the telehealth regulations in the states in which you are "
+        "licensed to practice."
+    ),
+}
+
 # Canonical sections each check looks up (for the synonym editor hint).
 SECTIONS_FOR_STANDARD: dict[str, list[str]] = {
     "A2":  ["address", "phone", "emergency_contact", "marital_status", "consent"],
@@ -355,6 +565,7 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
                 "sections_searched": sections_searched,
                 "sections_missing":  sections_missing,
                 "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
+                "payer_text":        STANDARD_TEXT.get(sid, ""),
             }
             yield _sse("check_done", {"note_index": ni, "card": card})
 
@@ -379,6 +590,7 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
                 "sections_searched": sections_searched,
                 "sections_missing":  [],
                 "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
+                "payer_text":        STANDARD_TEXT.get(sid, ""),
             }
             yield _sse("check_done", {"note_index": ni, "card": card})
 
@@ -494,6 +706,7 @@ def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) 
                     "sections_searched": sections_searched,
                     "sections_missing": sections_missing,
                     "has_prompt_file":  False,
+                "payer_text":       STANDARD_TEXT.get(sid, ""),
                 })
 
         h = note.header
@@ -866,6 +1079,9 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px;
 .appl-C    { background: #fff3e0; color: #e65100; }
 .appl-none { background: #f0f0f0; color: #aaa; }
 .override-note { font-size: 10px; color: #e67e22; margin-left: 6px; }
+.payer-text { background: #f5f0ff; border-left: 3px solid #7c4dcc; padding: 6px 10px;
+              font-size: 11px; color: #333; line-height: 1.5; border-radius: 2px;
+              font-style: italic; }
 
 /* ── edit panels ── */
 .edit-panel { background: #f0f4ff; border: 1px solid #c0c8e8; border-radius: 5px;
@@ -1225,6 +1441,7 @@ function selectPdf(name, el) {
     const isSkipped = card.verdict === "skipped";
     const div  = document.createElement("div");
     div.className = "card" + (isNA ? " na" : isSkipped ? " skipped" : "");
+    if (card.payer_text) div.title = card.payer_text;
     div.innerHTML = `
       <div class="card-top">
         <span class="card-id">${card.standard_id}</span>
@@ -1391,6 +1608,7 @@ function renderResults(notes) {
       const isSkipped = card.verdict === "skipped";
       const div  = document.createElement("div");
       div.className = "card" + (isNA ? " na" : isSkipped ? " skipped" : "");
+      if (card.payer_text) div.title = card.payer_text;
       div.innerHTML = `
         <div class="card-top">
           <span class="card-id">${card.standard_id}</span>
@@ -1435,6 +1653,12 @@ function openModal(note, card) {
       ${verdictBadge(card.verdict)}
     </div>
     <div class="rationale-text">${escHtml(card.rationale)}</div>`;
+
+  // 1b. Payer standard text
+  if (card.payer_text) {
+    html += `<div class="section-label">Payer standard (verbatim)</div>
+      <div class="payer-text">${escHtml(card.payer_text)}</div>`;
+  }
 
   // 2. Evidence
   if (card.excerpts?.length > 0) {
