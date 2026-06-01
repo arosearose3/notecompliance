@@ -237,6 +237,166 @@ def _build_bundles(notes):
     return bundles
 
 
+def evaluate_pdf_stream(pdf_path: Path, inner_judge):
+    """
+    Generator that yields SSE-formatted strings as evaluation progresses.
+
+    Event types:
+      init         — {total_notes, total_checks, pdf}
+      note_start   — {note_index, note_type, member, service_date, first_page, total_checks}
+      judge_start  — {note_index, standard_id}
+      judge_done   — {note_index, standard_id}
+      check_done   — {note_index, card: {...}}  (one card object)
+      note_done    — {note_index, note: {...}}  (full note meta without cards — cards already sent)
+      done         — {}
+      error        — {message}
+    """
+    import json as _json
+
+    def _sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {_json.dumps(data)}\n\n"
+
+    try:
+        notes   = split_notes(pdf_path)
+        bundles = _build_bundles(notes)
+    except Exception as exc:
+        yield _sse("error", {"message": str(exc)})
+        return
+
+    total_notes  = len(notes)
+    total_checks = len(ALL_CHECKS)
+    yield _sse("init", {"total_notes": total_notes, "total_checks": total_checks, "pdf": pdf_path.name})
+
+    for ni, note in enumerate(notes):
+        bundle         = bundles.get(note.header.member_name or "unknown")
+        applicable_ids = set(get_applicable_standards(note.note_type))
+        h              = note.header
+
+        yield _sse("note_start", {
+            "note_index":   ni,
+            "note_type":    note.note_type,
+            "member":       h.member_name or "Unknown",
+            "service_date": str(h.service_date) if h.service_date else None,
+            "first_page":   (note.page_indices[0] + 1) if note.page_indices else 1,
+            "total_checks": total_checks,
+        })
+
+        # Run each check; broadcast judge_start / judge_done around LLM calls.
+        evaluated: dict[str, tuple] = {}
+        for check in ALL_CHECKS:
+            sid = check.standard_id
+            if sid not in applicable_ids:
+                evaluated[sid] = (make_not_applicable(sid), [])
+                continue
+
+            # Thin judge wrapper that yields SSE events for LLM activity.
+            class _StreamingJudge:
+                name = getattr(inner_judge, "name", "judge")
+                def __init__(self_, calls_out):
+                    self_._calls = calls_out
+                def evaluate(self_, *, question, context, hint=""):
+                    # signal LLM call start/done via side-channel list
+                    self_._calls.append(("start", sid))
+                    ans = ConfigurableRecordingJudge(inner_judge, sid).evaluate(
+                        question=question, context=context, hint=hint
+                    )
+                    self_._calls.append(("done", sid, ans))
+                    return ans
+
+            judge_events: list = []
+            sj = _StreamingJudge(judge_events)
+            rj = ConfigurableRecordingJudge(sj, sid)
+
+            try:
+                result = check.run(note, rj, bundle)
+            except Exception as exc:
+                result = make_not_applicable(sid, f"Check error: {exc}")
+
+            # Emit judge events that occurred during this check
+            for ev in judge_events:
+                if ev[0] == "start":
+                    yield _sse("judge_start", {"note_index": ni, "standard_id": sid})
+                elif ev[0] == "done":
+                    yield _sse("judge_done",  {"note_index": ni, "standard_id": sid})
+
+            # Merge actual judge calls from the outer recording judge
+            actual_calls = rj.calls if hasattr(rj, "calls") else []
+            evaluated[sid] = (result, actual_calls)
+
+            # Build and emit this card immediately
+            sections_searched = SECTIONS_FOR_STANDARD.get(sid, [])
+            sections_missing  = [s for s in sections_searched if not note.sections.get(s, "").strip()]
+            appl              = applies(sid, note.note_type)
+            card = {
+                "standard_id":       sid,
+                "title":             STANDARD_TITLES[sid],
+                "applicability":     appl,
+                "verdict":           result.verdict,
+                "rationale":         result.rationale,
+                "excerpts":          list(result.excerpts),
+                "page_numbers":      [p + 1 for p in result.page_numbers],
+                "judge_used":        result.judge_used,
+                "judge_calls":       actual_calls,
+                "sections_searched": sections_searched,
+                "sections_missing":  sections_missing,
+                "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
+            }
+            yield _sse("check_done", {"note_index": ni, "card": card})
+
+        # Emit N/A cards for non-applicable standards
+        for sid in STANDARD_ORDER:
+            if sid in evaluated:
+                continue
+            appl = applies(sid, note.note_type)
+            if appl is not None:
+                continue
+            sections_searched = SECTIONS_FOR_STANDARD.get(sid, [])
+            card = {
+                "standard_id":       sid,
+                "title":             STANDARD_TITLES[sid],
+                "applicability":     None,
+                "verdict":           "not_applicable",
+                "rationale":         f"Not applicable to {note.note_type} notes.",
+                "excerpts":          [],
+                "page_numbers":      [],
+                "judge_used":        None,
+                "judge_calls":       [],
+                "sections_searched": sections_searched,
+                "sections_missing":  [],
+                "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
+            }
+            yield _sse("check_done", {"note_index": ni, "card": card})
+
+        # Emit note metadata (header, sections) — cards were already streamed
+        header_snapshot = {k: v for k, v in {
+            "service_date":         str(h.service_date) if h.service_date else None,
+            "entry_date":           str(h.entry_date) if h.entry_date else None,
+            "duration_minutes":     h.duration_minutes,
+            "clinician":            h.clinician,
+            "clinician_credential": h.clinician_credential,
+            "license_id":           h.license_id,
+            "member_name":          h.member_name,
+            "member_dob":           str(h.member_dob) if h.member_dob else None,
+            "location":             h.location,
+            "service_code":         h.service_code,
+            "participants":         h.participants,
+        }.items() if v is not None}
+
+        yield _sse("note_done", {
+            "note_index":   ni,
+            "note_type":    note.note_type,
+            "service_date": str(h.service_date) if h.service_date else None,
+            "member":       h.member_name or "Unknown",
+            "clinician":    h.clinician or "Unknown",
+            "page_indices": note.page_indices,
+            "first_page":   (note.page_indices[0] + 1) if note.page_indices else 1,
+            "section_keys": sorted(note.sections.keys()),
+            "header":       header_snapshot,
+        })
+
+    yield _sse("done", {})
+
+
 def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) -> list[dict]:
     """
     Run all checks against every note in pdf_path (or only note_index if given).
@@ -549,6 +709,38 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px;
 .pdf-name { font-weight: 500; word-break: break-all; }
 .pdf-meta { font-size: 11px; color: #999; margin-top: 2px; }
 
+/* left-pane loading shimmer */
+.pdf-shimmer { padding: 8px 12px; border-bottom: 1px solid #f2f2f2; }
+.shimmer-line { height: 10px; border-radius: 4px; background: linear-gradient(90deg,#eee 25%,#f8f8f8 50%,#eee 75%);
+                background-size: 200% 100%; animation: shimmer 1.2s infinite; margin-bottom: 4px; }
+.shimmer-line.short { width: 55%; height: 8px; }
+@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+/* per-PDF scan progress bar */
+.pdf-scan-bar { height: 2px; background: #e0e4ec; border-radius: 1px; margin-top: 4px; overflow: hidden; }
+.pdf-scan-fill { height: 100%; background: #4466cc; width: 0%; transition: width .3s ease; border-radius: 1px; }
+
+/* right-pane progress */
+#eval-progress { padding: 8px 12px; display: none; }
+.eval-bar-wrap { background: #e8ecf4; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 4px; }
+.eval-bar-fill { height: 100%; background: linear-gradient(90deg,#4466cc,#6688ee); width: 0%;
+                 transition: width .15s ease; border-radius: 4px; }
+.eval-status { font-size: 10px; color: #778; display: flex; align-items: center; gap: 6px; }
+
+/* LLM active indicator */
+.llm-indicator { display: none; align-items: center; gap: 5px; font-size: 10px;
+                 color: #e67e22; font-weight: 600; }
+.llm-indicator.active { display: flex; }
+.llm-dot { width: 7px; height: 7px; border-radius: 50%; background: #e67e22;
+            animation: llm-pulse 0.9s ease-in-out infinite; }
+@keyframes llm-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+
+/* per-note progress track inside accordion header during streaming */
+.acc-progress { height: 2px; background: #c8d0e8; flex-shrink: 0; width: 60px; border-radius: 1px;
+                overflow: hidden; display: none; }
+.acc-progress-fill { height: 100%; background: #4466cc; width: 0%; transition: width .1s linear; }
+.acc-header.streaming .acc-progress { display: block; }
+
 /* ── center pane ── */
 #center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #center-header { padding: 8px 12px; background: #fff; border-bottom: 1px solid #dde;
@@ -738,6 +930,15 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px;
   </div>
   <div id="right">
     <div id="right-header">Standards (47)</div>
+    <div id="eval-progress">
+      <div class="eval-bar-wrap"><div class="eval-bar-fill" id="eval-bar"></div></div>
+      <div class="eval-status">
+        <span id="eval-status-text">Scanning…</span>
+        <span class="llm-indicator" id="llm-indicator">
+          <span class="llm-dot"></span>AI judge active
+        </span>
+      </div>
+    </div>
     <div id="spinner">Evaluating…</div>
     <div id="results-pane"></div>
   </div>
@@ -817,51 +1018,280 @@ let _currentCard   = null;
 let _corpus        = [];
 let _crMd          = "";
 
-// ── Init ──────────────────────────────────────────────────────────────────────
+// ── Init — stream PDF list with per-file progress ─────────────────────────────
 async function init() {
-  const [pdfs, corpus] = await Promise.all([
-    fetch("/api/pdfs").then(r => r.json()),
-    fetch("/api/regression/corpus").then(r => r.json()),
-  ]);
-  document.getElementById("source-label").textContent = "Source: " + pdfs.source_dir;
-  _corpus = corpus;
-  updateCorpusCount();
+  // Load corpus in parallel while streaming PDFs
+  fetch("/api/regression/corpus").then(r => r.json()).then(c => {
+    _corpus = c;
+    updateCorpusCount();
+  });
 
   const list = document.getElementById("pdf-list");
-  pdfs.pdfs.forEach(pdf => {
+
+  // Show shimmer placeholders while the first events arrive
+  function addShimmer() {
+    const s = document.createElement("div");
+    s.className = "pdf-shimmer";
+    s.innerHTML = `<div class="shimmer-line"></div><div class="shimmer-line short"></div>`;
+    list.appendChild(s);
+    return s;
+  }
+  const shimmers = [addShimmer(), addShimmer(), addShimmer()];
+
+  const es = new EventSource("/api/pdfs/stream");
+
+  es.addEventListener("start", e => {
+    const d = JSON.parse(e.data);
+    document.getElementById("source-label").textContent = "Source: " + d.source_dir;
+    // Remove extra shimmers if we have fewer PDFs than placeholders
+    while (shimmers.length > d.total && shimmers.length > 0) {
+      const s = shimmers.pop();
+      s.remove();
+    }
+  });
+
+  es.addEventListener("pdf", e => {
+    const d = JSON.parse(e.data);
+
+    // Replace next shimmer with real item (or append if none left)
+    const shimmer = shimmers.shift();
     const el = document.createElement("div");
     el.className = "pdf-item";
-    el.dataset.name = pdf.name;
-    el.innerHTML = `<div class="pdf-name">${pdf.name}</div>
-                    <div class="pdf-meta">${pdf.note_count} note${pdf.note_count !== 1 ? "s" : ""}</div>`;
-    el.addEventListener("click", () => selectPdf(pdf.name, el));
-    list.appendChild(el);
+    el.dataset.name = d.name;
+    el.innerHTML = `
+      <div class="pdf-name">${escHtml(d.name)}</div>
+      <div class="pdf-meta">${d.note_count} note${d.note_count !== 1 ? "s" : ""}</div>
+      <div class="pdf-scan-bar"><div class="pdf-scan-fill" style="width:100%"></div></div>`;
+    el.addEventListener("click", () => selectPdf(d.name, el));
+
+    if (shimmer) {
+      list.replaceChild(el, shimmer);
+    } else {
+      list.appendChild(el);
+    }
+
+    // Fade out the scan bar after a moment
+    setTimeout(() => {
+      const bar = el.querySelector(".pdf-scan-bar");
+      if (bar) bar.style.opacity = "0";
+    }, 600);
   });
+
+  es.addEventListener("done", () => {
+    // Remove any leftover shimmers (edge case: source_dir is empty)
+    shimmers.forEach(s => s.remove());
+    shimmers.length = 0;
+    es.close();
+  });
+
+  es.onerror = () => {
+    shimmers.forEach(s => s.remove());
+    es.close();
+  };
 }
 
-// ── PDF selection ─────────────────────────────────────────────────────────────
-async function selectPdf(name, el) {
+// ── PDF selection — stream evaluation with live progress ──────────────────────
+let _evalEs = null;  // active EventSource for evaluation
+
+function selectPdf(name, el) {
   if (_currentPdf === name) return;
+
+  // Cancel any in-flight evaluation
+  if (_evalEs) { _evalEs.close(); _evalEs = null; }
+
   _currentPdf = name;
+  _noteData   = [];
   document.querySelectorAll(".pdf-item").forEach(e => e.classList.remove("active"));
   el.classList.add("active");
   loadPdfViewer(name, 1);
 
-  const pane = document.getElementById("results-pane");
-  pane.innerHTML = "";
-  pane.scrollTop = 0;
-  document.getElementById("right-header").textContent = "Evaluating…";
-  document.getElementById("spinner").style.display = "block";
+  const pane       = document.getElementById("results-pane");
+  const evalProg   = document.getElementById("eval-progress");
+  const evalBar    = document.getElementById("eval-bar");
+  const statusText = document.getElementById("eval-status-text");
+  const llmInd     = document.getElementById("llm-indicator");
 
-  try {
-    const notes = await fetch(`/api/evaluate?pdf=${encodeURIComponent(name)}`).then(r => r.json());
-    _noteData = notes;
-    renderResults(notes);
-  } catch (e) {
-    pane.innerHTML = `<div style="padding:12px;color:#c00">Error: ${e.message}</div>`;
-  } finally {
-    document.getElementById("spinner").style.display = "none";
+  pane.innerHTML   = "";
+  pane.scrollTop   = 0;
+  document.getElementById("right-header").textContent = "Evaluating…";
+  document.getElementById("spinner").style.display = "none";
+  evalProg.style.display  = "block";
+  evalBar.style.width     = "0%";
+  statusText.textContent  = "Opening PDF…";
+  llmInd.classList.remove("active");
+
+  // Per-note state: noteAccordions[ni] = {el, inner, cardCount, totalChecks}
+  const noteAccordions = {};
+  // Accumulated full note objects keyed by note_index
+  const noteObjects    = {};
+  let totalChecks      = 49;  // will be updated from 'init' event
+  let totalNotes       = 1;
+  let checksCompleted  = 0;
+  let llmActive        = 0;
+
+  function updateBar() {
+    const pct = totalChecks > 0 ? Math.min(100, (checksCompleted / (totalNotes * totalChecks)) * 100) : 0;
+    evalBar.style.width = pct + "%";
   }
+
+  _evalEs = new EventSource(`/api/evaluate/stream?pdf=${encodeURIComponent(name)}`);
+
+  _evalEs.addEventListener("init", e => {
+    const d = JSON.parse(e.data);
+    totalNotes  = d.total_notes;
+    totalChecks = d.total_checks;
+    statusText.textContent = `Found ${totalNotes} note${totalNotes !== 1 ? "s" : ""}…`;
+  });
+
+  _evalEs.addEventListener("note_start", e => {
+    const d   = JSON.parse(e.data);
+    const ni  = d.note_index;
+    const accId = `acc-${ni}`;
+
+    // Create accordion shell immediately so cards can populate into it
+    const acc = document.createElement("div");
+    acc.className = "accordion";
+    acc.id        = accId;
+
+    const hdr = document.createElement("div");
+    hdr.className = "acc-header streaming";
+    const typeLabel = (d.note_type || "note").replace(/_/g, " ");
+    hdr.innerHTML = `
+      <span class="chevron">▶</span>
+      <span class="acc-note-label">Note ${ni+1}: ${escHtml(typeLabel)} · ${escHtml(d.member||"…")} · ${escHtml(d.service_date||"…")}</span>
+      <span class="acc-summary"></span>
+      <span class="acc-progress"><span class="acc-progress-fill" id="np-${ni}"></span></span>`;
+    hdr.addEventListener("click", () => toggleAccordion(accId, d.first_page));
+    acc.appendChild(hdr);
+
+    const body  = document.createElement("div");
+    body.className = "acc-body";
+    const inner = document.createElement("div");
+    inner.className = "acc-body-inner";
+    body.appendChild(inner);
+    acc.appendChild(body);
+    pane.appendChild(acc);
+
+    // First note auto-opens
+    if (ni === 0) {
+      acc.classList.add("open");
+      jumpToPage(d.first_page);
+    }
+
+    noteAccordions[ni] = { el: acc, inner, hdr, cardCount: 0, totalChecks: d.total_checks };
+    noteObjects[ni]    = { note_index: ni, note_type: d.note_type, member: d.member,
+                           service_date: d.service_date, first_page: d.first_page,
+                           section_keys: [], header: {}, cards: [] };
+
+    statusText.textContent = `Note ${ni+1}/${totalNotes}: ${escHtml(typeLabel)}`;
+  });
+
+  _evalEs.addEventListener("judge_start", e => {
+    llmActive++;
+    if (llmActive > 0) llmInd.classList.add("active");
+  });
+
+  _evalEs.addEventListener("judge_done", e => {
+    llmActive = Math.max(0, llmActive - 1);
+    if (llmActive === 0) llmInd.classList.remove("active");
+  });
+
+  _evalEs.addEventListener("check_done", e => {
+    const d   = JSON.parse(e.data);
+    const ni  = d.note_index;
+    const card = d.card;
+    const acc  = noteAccordions[ni];
+    if (!acc) return;
+
+    // Append the card to the note's inner div
+    const isNA = card.applicability === null;
+    const div  = document.createElement("div");
+    div.className = "card" + (isNA ? " na" : "");
+    div.innerHTML = `
+      <div class="card-top">
+        <span class="card-id">${card.standard_id}</span>
+        ${verdictBadge(card.verdict)}
+        <span class="card-title">${escHtml(card.title)}</span>
+      </div>
+      <div class="card-rationale">${escHtml(card.rationale)}</div>`;
+
+    if (!isNA) {
+      // card click needs the full note object — stash card in noteObjects for later
+      div.addEventListener("click", () => {
+        const n = noteObjects[ni];
+        if (n) openModal(n, card);
+      });
+    }
+    acc.inner.appendChild(div);
+
+    // Store card in note object
+    if (noteObjects[ni]) noteObjects[ni].cards.push(card);
+
+    // Update per-note mini progress bar
+    acc.cardCount++;
+    const npBar = document.getElementById(`np-${ni}`);
+    if (npBar) npBar.style.width = Math.min(100, (acc.cardCount / totalChecks) * 100) + "%";
+
+    // Update global progress
+    checksCompleted++;
+    updateBar();
+  });
+
+  _evalEs.addEventListener("note_done", e => {
+    const d  = JSON.parse(e.data);
+    const ni = d.note_index;
+    const acc = noteAccordions[ni];
+
+    // Merge full note metadata into noteObjects
+    if (noteObjects[ni]) {
+      Object.assign(noteObjects[ni], {
+        section_keys: d.section_keys,
+        header:       d.header,
+        clinician:    d.clinician,
+        page_indices: d.page_indices,
+      });
+      _noteData[ni] = noteObjects[ni];
+    }
+
+    // Finish the accordion header: add fail/review badges, remove streaming class
+    if (acc) {
+      const cards    = noteObjects[ni]?.cards || [];
+      const failCnt  = cards.filter(c => c.verdict === "fail").length;
+      const mrCnt    = cards.filter(c => c.verdict === "manual_review").length;
+      const badges   = [
+        failCnt > 0 ? `<span class="badge badge-fail">${failCnt} fail</span>`            : "",
+        mrCnt   > 0 ? `<span class="badge badge-manual_review">${mrCnt} review</span>` : "",
+      ].filter(Boolean).join(" ");
+      acc.hdr.querySelector(".acc-summary").innerHTML = badges;
+      acc.hdr.classList.remove("streaming");
+    }
+
+    statusText.textContent = `Note ${ni+1}/${totalNotes} done`;
+  });
+
+  _evalEs.addEventListener("done", () => {
+    _evalEs.close(); _evalEs = null;
+    evalBar.style.width = "100%";
+    llmInd.classList.remove("active");
+
+    // Update global header count
+    const allCards  = Object.values(noteObjects).flatMap(n => n.cards || []);
+    const failCount = allCards.filter(c => c.verdict === "fail").length;
+    const mrCount   = allCards.filter(c => c.verdict === "manual_review").length;
+    document.getElementById("right-header").textContent = `Standards — ${failCount} fail · ${mrCount} review`;
+
+    setTimeout(() => { evalProg.style.display = "none"; }, 1200);
+    statusText.textContent = "Complete";
+  });
+
+  _evalEs.addEventListener("error", e => {
+    if (_evalEs) { _evalEs.close(); _evalEs = null; }
+    evalProg.style.display = "none";
+    llmInd.classList.remove("active");
+    if (!pane.querySelector(".accordion")) {
+      pane.innerHTML = `<div style="padding:12px;color:#c00">Evaluation failed. Check the terminal for errors.</div>`;
+    }
+  });
 }
 
 function loadPdfViewer(name, page) {
@@ -1166,7 +1596,7 @@ async function saveSynonyms() {
   });
   fb.style.display = "inline";
   // Re-evaluate current PDF and refresh
-  await reEvalCurrent();
+  reEvalCurrent();
   setTimeout(() => { fb.style.display = "none"; }, 3000);
 }
 
@@ -1212,7 +1642,7 @@ async function saveApplicability(sid) {
   });
   const fb = document.getElementById("appl-saved");
   fb.style.display = "inline";
-  await reEvalCurrent();
+  reEvalCurrent();
   setTimeout(() => { fb.style.display = "none"; }, 3000);
 }
 
@@ -1240,13 +1670,13 @@ async function savePrompt() {
   });
   const fb = document.getElementById("prompt-saved");
   fb.style.display = "inline";
-  await reEvalCurrent();
+  reEvalCurrent();
   setTimeout(() => { fb.style.display = "none"; }, 3000);
 }
 
 async function deletePrompt() {
   await fetch(`/api/prompts/${_currentCard.standard_id}/delete`, { method: "POST" });
-  await reEvalCurrent();
+  reEvalCurrent();
   closeModal();
 }
 
@@ -1360,20 +1790,16 @@ async function copyCR() {
 // ── Reload rules ──────────────────────────────────────────────────────────────
 async function reloadRules() {
   await fetch("/api/reload", { method: "POST" });
-  if (_currentPdf) await reEvalCurrent();
+  if (_currentPdf) reEvalCurrent();
 }
 
-async function reEvalCurrent() {
+function reEvalCurrent() {
   if (!_currentPdf) return;
-  const pane = document.getElementById("results-pane");
-  document.getElementById("spinner").style.display = "block";
-  try {
-    const notes = await fetch(`/api/evaluate?pdf=${encodeURIComponent(_currentPdf)}`).then(r => r.json());
-    _noteData   = notes;
-    renderResults(notes);
-  } finally {
-    document.getElementById("spinner").style.display = "none";
-  }
+  // Re-select the active PDF item to trigger a fresh streamed evaluation
+  const el = document.querySelector(`.pdf-item[data-name="${CSS.escape(_currentPdf)}"]`);
+  const savedPdf = _currentPdf;
+  _currentPdf = null;  // force selectPdf to re-run
+  if (el) selectPdf(savedPdf, el);
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -1418,6 +1844,50 @@ def create_app(source_dir: Path, inner_judge) -> object:
                 count = 0
             pdfs.append({"name": p.name, "note_count": count})
         return jsonify({"source_dir": str(source_dir), "pdfs": pdfs})
+
+    @app.route("/api/pdfs/stream")
+    def api_pdfs_stream():
+        """SSE stream: emits one 'pdf' event per file as it is scanned."""
+        from flask import Response, stream_with_context
+        import json as _json
+
+        def generate():
+            pdf_files = sorted(source_dir.glob("*.pdf"))
+            total = len(pdf_files)
+            yield f"event: start\ndata: {_json.dumps({'total': total, 'source_dir': str(source_dir)})}\n\n"
+            for i, p in enumerate(pdf_files):
+                try:
+                    count = len(split_notes(p))
+                except Exception:
+                    count = 0
+                payload = _json.dumps({"name": p.name, "note_count": count, "index": i, "total": total})
+                yield f"event: pdf\ndata: {payload}\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.route("/api/evaluate/stream")
+    def api_evaluate_stream():
+        """SSE stream: emits check-level events as evaluation progresses."""
+        from flask import Response, stream_with_context
+        name = request.args.get("pdf", "")
+        if not name:
+            return jsonify({"error": "pdf parameter required"}), 400
+        candidate = (source_dir / name).resolve()
+        if source_dir.resolve() not in candidate.parents:
+            return jsonify({"error": "forbidden"}), 403
+        if not candidate.is_file():
+            return jsonify({"error": "not found"}), 404
+
+        return Response(
+            stream_with_context(evaluate_pdf_stream(candidate, inner_judge)),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.route("/pdf/<path:name>")
     def serve_pdf(name: str):
