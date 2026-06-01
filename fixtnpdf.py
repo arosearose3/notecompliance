@@ -30,6 +30,9 @@ try:
 except ImportError as e:
     sys.exit(f"Missing dependency: {e}\n  pip install pymupdf pdfplumber")
 
+from compliance.rewrite.types import RewritePlan, TargetSpan
+from compliance.rewrite.applier import apply_plan
+
 
 # ---------------------------------------------------------------------------
 # Providers and supervisors CSVs
@@ -269,217 +272,14 @@ def build_corrections_for_groups(note_groups: list[dict], providers: dict) -> di
 
 
 # ---------------------------------------------------------------------------
-# PDF modification with pymupdf
+# PDF modification — delegates to compliance.rewrite shared engine
 # ---------------------------------------------------------------------------
 
-RE_LICENSE         = re.compile(r"License ([A-Z]{2}) (\d+)")
-RE_LICENSE_NOSTATE = re.compile(r"License (\d+)")
-RE_SIGNED          = re.compile(r",?\s*signed\s+this\s+note", re.IGNORECASE)
-
-
-def _clean_signature_span(text: str, name: str, credential: str,
-                           lpc_id: str | None) -> str:
-    """
-    Reconstruct a signature span as: name, credential[, #lpc_id], signed this note...
-
-    Strips ALL intermediate text between the name and "signed this note" — whether
-    it sits between the credential and the license, or between the license and the
-    signed phrase.  No-ops when 'signed this note' is absent or name is missing.
-    """
-    if "signed this note" not in text.lower() or name not in text:
-        return text
-
-    prefix = text[: text.index(name)]           # text before the name (usually empty)
-    signed_m = RE_SIGNED.search(text)
-    if not signed_m:
-        return text
-
-    suffix = text[signed_m.end():]              # text after "signed this note"
-    cred_part = f"{credential}, #{lpc_id}" if lpc_id else credential
-    return f"{prefix}{name}, {cred_part}, signed this note{suffix}"
-
-
-def _substitute_span_text(span_text: str, old_cred_text: str, new_cred_text: str,
-                           new_id: str | None) -> str:
-    """
-    Replace the credential label and, for signature spans, also the license ID.
-    License is written as '#NNNNN' (no 'License CO' prefix) to save line width.
-    If a 'License XX NNNNN' token already exists it is replaced; if the span had
-    no license token (e.g. an Intern signature), '#NNNNN' is inserted after the
-    credential.
-    """
-    result = span_text.replace(old_cred_text, new_cred_text)
-    if new_id is not None:
-        m = RE_LICENSE.search(result)
-        if m:
-            result = result.replace(
-                f"License {m.group(1)} {m.group(2)}",
-                f"#{new_id}",
-            )
-        elif new_cred_text in result:
-            result = result.replace(
-                new_cred_text,
-                f"{new_cred_text}, #{new_id}",
-                1,
-            )
-    # For signature spans: reconstruct the line from scratch so that ALL
-    # intermediate degree/title text is removed regardless of its position.
-    if "signed this note" in result.lower():
-        parts = new_cred_text.split(", ", 1)   # "Name, Credential"
-        if len(parts) == 2:
-            result = _clean_signature_span(result, parts[0], parts[1], new_id)
-    return result
-
-
-def _find_affected_spans(page: fitz.Page, old_cred_text: str, new_cred_text: str,
-                         new_id: str | None) -> list[dict]:
-    """Find all spans containing old_cred_text and build their replacement info."""
-    results = []
-    for block in page.get_text("dict")["blocks"]:
-        for line in block.get("lines", []):
-            for span in line["spans"]:
-                if old_cred_text in span["text"]:
-                    results.append({
-                        "rect":     fitz.Rect(span["bbox"]),
-                        "origin":   fitz.Point(span["origin"]),
-                        "new_text": _substitute_span_text(
-                            span["text"], old_cred_text, new_cred_text, new_id
-                        ),
-                        "size":     span["size"],
-                    })
-    return results
-
-
-RE_SIG_CRED = re.compile(r",\s+(\S+)")   # first token after comma in signature
-
-
-def _find_insert_spans(page: fitz.Page, clinician: str, new_title: str,
-                       new_id: str | None) -> list[dict]:
-    """
-    For notes where the credential was absent from the header.
-
-    In some EHR templates fitz splits the header into separate spans:
-      'Clinician:'  and  'Rachel Kelley'  (not a single combined span).
-
-    Two strategies per span:
-      1. Header span — text is exactly the clinician name (no comma/credential):
-         replace the name with "name, new_title".
-      2. Signature span — name followed by comma + existing credential:
-         only replace if the existing credential differs from new_title.
-    """
-    results = []
-
-    for block in page.get_text("dict")["blocks"]:
-        for line in block.get("lines", []):
-            for span in line["spans"]:
-                text = span["text"]
-                stripped = text.strip()
-
-                # Strategy 1: standalone name span (header, no credential present)
-                if stripped == clinician:
-                    results.append({
-                        "rect":     fitz.Rect(span["bbox"]),
-                        "origin":   fitz.Point(span["origin"]),
-                        "new_text": text.replace(
-                            clinician,
-                            f"{clinician}, {new_title}, #{new_id}" if new_id else f"{clinician}, {new_title}",
-                            1,
-                        ),
-                        "size":     span["size"],
-                    })
-                    continue
-
-                # Strategy 2: signature span — name + comma + existing credential
-                if clinician + "," in text:
-                    after = text[text.index(clinician + ",") + len(clinician):]
-                    m = RE_SIG_CRED.match(after)
-                    if m:
-                        existing_cred = m.group(1).rstrip(",")
-                        if existing_cred != new_title:
-                            old_sig = f"{clinician}, {existing_cred}"
-                            new_sig = f"{clinician}, {new_title}"
-                            new_text = _substitute_span_text(text, old_sig, new_sig, new_id)
-                            results.append({
-                                "rect":     fitz.Rect(span["bbox"]),
-                                "origin":   fitz.Point(span["origin"]),
-                                "new_text": new_text,
-                                "size":     span["size"],
-                                "font":     span.get("font", "helv"),
-                            })
-
-    return results
-
-
-def _fix_supervisor_span(text: str, name: str, lpc_id: str) -> str | None:
-    """
-    Return corrected span text for a span containing a supervisor name,
-    or None if no change is needed.
-
-    Target format: "Name, LPC, #ID" (header) or
-    "Name, LPC, [Degree], #ID, signed..." (signature).
-    """
-    if name not in text:
-        return None
-
-    result = text
-    id_tag = f"#{lpc_id}"
-
-    # Normalise any existing "License CO NNNNN" or "License NNNNN" to "#ID".
-    m = RE_LICENSE.search(result)
-    if m:
-        result = result.replace(f"License {m.group(1)} {m.group(2)}", id_tag)
-    else:
-        m = RE_LICENSE_NOSTATE.search(result)
-        if m:
-            result = result.replace(f"License {m.group(1)}", id_tag)
-
-    # Ensure ", LPC" credential is present immediately after the name.
-    if f"{name}, LPC" not in result:
-        if f"{name}," in result:
-            # Name followed by something else (e.g. degree) — insert LPC.
-            result = result.replace(f"{name},", f"{name}, LPC,", 1)
-        else:
-            # Standalone name span.
-            result = result.replace(name, f"{name}, LPC", 1)
-
-    # Ensure the license ID tag is present.
-    if id_tag not in result:
-        result = result.replace(f"{name}, LPC", f"{name}, LPC, {id_tag}", 1)
-
-    # For signature spans: reconstruct from scratch to strip all intermediate text.
-    result = _clean_signature_span(result, name, "LPC", lpc_id)
-
-    return result if result != text else None
-
-
-def _find_supervisor_span_fixes(page: "fitz.Page", name: str, lpc_id: str) -> list[dict]:
-    """Return redact+reinsert dicts for every span on page that contains the supervisor name."""
-    results = []
-    for block in page.get_text("dict")["blocks"]:
-        for line in block.get("lines", []):
-            for span in line["spans"]:
-                new_text = _fix_supervisor_span(span["text"], name, lpc_id)
-                if new_text is not None:
-                    results.append({
-                        "rect":     fitz.Rect(span["bbox"]),
-                        "origin":   fitz.Point(span["origin"]),
-                        "new_text": new_text,
-                        "size":     span["size"],
-                    })
-    return results
-
-
-_SMALL_CAPS = str.maketrans({
-    'ᴀ': 'A', 'ʙ': 'B', 'ᴄ': 'C', 'ᴅ': 'D', 'ᴇ': 'E', 'ɢ': 'G',
-    'ʜ': 'H', 'ɪ': 'I', 'ᴊ': 'J', 'ᴋ': 'K', 'ʟ': 'L', 'ᴍ': 'M',
-    'ɴ': 'N', 'ᴏ': 'O', 'ᴘ': 'P', 'ʀ': 'R', 'ᴛ': 'T', 'ᴜ': 'U',
-    'ᴠ': 'V', 'ᴡ': 'W', 'ʏ': 'Y', 'ᴢ': 'Z',
-})
-
-
-def _normalize_text(text: str) -> str:
-    """Replace Unicode small-caps with plain ASCII so Helvetica renders them."""
-    return text.translate(_SMALL_CAPS)
+from compliance.rewrite.actions.provider_title import (
+    _locate_affected, _locate_insert, _substitute_span_text,
+    compute_credential as _compute_credential,
+)
+from compliance.rewrite.actions.supervisor_credential import _fix_supervisor_text
 
 
 def apply_corrections(
@@ -492,60 +292,97 @@ def apply_corrections(
     """
     Build an output PDF containing only pages_to_include (all pages if None),
     apply clinician credential corrections and supervisor fixes, and save.
-    Returns the number of pages written.
+    Returns the number of pages written (pages that had at least one span changed).
+
+    Delegates redact/reinsert to compliance.rewrite.apply_plan so all PDF
+    modification is in one audited place.
     """
-    source = fitz.open(pdf_path)
     supervisors = supervisors or {}
 
+    src = fitz.open(str(pdf_path))
     if pages_to_include is None:
-        pages_to_include = set(range(len(source)))
+        pages_to_include = set(range(len(src)))
+    src.close()
 
-    # Build new PDF with only the selected source pages; track index remapping.
-    out = fitz.open()
-    src_to_out: dict[int, int] = {}
+    plan = RewritePlan()
+
+    src = fitz.open(str(pdf_path))
+    pages_with_changes: set[int] = set()
+
     for src_idx in sorted(pages_to_include):
-        out_idx = len(out)
-        out.insert_pdf(source, from_page=src_idx, to_page=src_idx)
-        src_to_out[src_idx] = out_idx
-    source.close()
-
-    pages_modified = 0
-    for src_idx, out_idx in src_to_out.items():
-        page = out[out_idx]
-        spans: list[dict] = []
+        page = src[src_idx]
 
         if src_idx in corrections:
             clinician, old_title, new_title, new_id = corrections[src_idx]
             if old_title:
-                spans += _find_affected_spans(
-                    page, f"{clinician}, {old_title}", f"{clinician}, {new_title}", new_id
-                )
+                located = _locate_affected(page, f"{clinician}, {old_title}", f"{clinician}, {new_title}", new_id)
+                for span in located:
+                    new_text = _substitute_span_text(span.old_text, f"{clinician}, {old_title}", f"{clinician}, {new_title}", new_id)
+                    plan.add(span, new_text)
+                    pages_with_changes.add(src_idx)
             else:
-                spans += _find_insert_spans(page, clinician, new_title, new_id)
+                from compliance.rewrite.actions.provider_title import _locate_insert as _li
+                located = _li(page, clinician, new_title, new_id)
+                for span in located:
+                    text = span.old_text
+                    stripped = text.strip()
+                    if stripped == clinician:
+                        new_text = text.replace(
+                            clinician,
+                            f"{clinician}, {new_title}, #{new_id}" if new_id else f"{clinician}, {new_title}",
+                            1,
+                        )
+                    else:
+                        import re as _re
+                        _RE_SIG_CRED = _re.compile(r",\s+(\S+)")
+                        after = text[text.index(clinician + ",") + len(clinician):]
+                        m = _RE_SIG_CRED.match(after)
+                        existing_cred = m.group(1).rstrip(",") if m else old_title
+                        new_text = _substitute_span_text(text, f"{clinician}, {existing_cred}", f"{clinician}, {new_title}", new_id)
+                    plan.add(span, new_text)
+                    pages_with_changes.add(src_idx)
 
         for sup_name, lpc_id in supervisors.items():
-            spans += _find_supervisor_span_fixes(page, sup_name, lpc_id)
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    for span in line["spans"]:
+                        new_text = _fix_supervisor_text(span["text"], sup_name, lpc_id)
+                        if new_text is not None:
+                            from compliance.rewrite.types import TargetSpan as _TS
+                            plan.add(
+                                _TS(
+                                    page_index=src_idx,
+                                    rect=tuple(span["bbox"]),
+                                    origin=tuple(span["origin"]),
+                                    size=span["size"],
+                                    font=span.get("font", "helv"),
+                                    old_text=span["text"],
+                                ),
+                                new_text,
+                            )
+                            pages_with_changes.add(src_idx)
 
-        if not spans:
-            continue
+    src.close()
 
-        for s in spans:
-            page.add_redact_annot(s["rect"], fill=(1, 1, 1))
-        page.apply_redactions(images=0, graphics=0)
+    if not plan.entries:
+        # Nothing to change — write a copy of the selected pages unchanged
+        src2 = fitz.open(str(pdf_path))
+        out = fitz.open()
+        for src_idx in sorted(pages_to_include):
+            out.insert_pdf(src2, from_page=src_idx, to_page=src_idx)
+        src2.close()
+        out.save(str(output_path))
+        out.close()
+        return 0
 
-        for s in spans:
-            page.insert_text(
-                s["origin"],
-                _normalize_text(s["new_text"]),
-                fontname="helv",
-                fontsize=s["size"],
-                color=(0, 0, 0),
-            )
-        pages_modified += 1
-
-    out.save(output_path)
-    out.close()
-    return pages_modified
+    apply_plan(
+        source_pdf=pdf_path,
+        output_pdf=output_path,
+        plan=plan,
+        pages_to_include=pages_to_include,
+        action_id="provider_title+supervisor_credential",
+    )
+    return len(pages_with_changes)
 
 
 # ---------------------------------------------------------------------------

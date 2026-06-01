@@ -98,3 +98,30 @@ def get_applicability_overrides() -> dict[str, dict[str, str | None]]:
 def get_prompt(standard_id: str) -> str | None:
     """Return the judge-prompt override for a standard, or None if unset."""
     return _load_text(RULES_DIR / "prompts" / f"{standard_id}.md")
+
+
+def get_rewrites() -> list[dict]:
+    """
+    Return the list of Tier-R1 declarative rewrite actions from rules/rewrites.yaml.
+
+    Each entry has: id, label, match (section/pattern), replace (template),
+    applies_to (list of doc types, empty = all).
+    """
+    path = RULES_DIR / "rewrites.yaml"
+    if not _YAML_OK:
+        return []
+    key = str(path)
+    try:
+        mtime = path.stat().st_mtime
+    except FileNotFoundError:
+        _CACHE.pop(key, None)
+        return []
+    cached = _CACHE.get(key)
+    if cached and cached[0] == mtime:
+        return cached[1]  # type: ignore[return-value]
+    with open(path, encoding="utf-8") as f:
+        val = _yaml.safe_load(f) or []
+    if not isinstance(val, list):
+        val = []
+    _CACHE[key] = (mtime, val)
+    return val

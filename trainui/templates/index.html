@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Standards Trainer</title>
+<link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+
+<div id="topbar">
+  <h1>Standards Trainer</h1>
+  <span class="sub" id="source-label"></span>
+  <button class="tb-btn" onclick="reloadRules()">↺ Reload rules</button>
+  <button class="tb-btn" id="reg-btn" onclick="toggleRegression()">Regression <span id="corpus-count">(0)</span></button>
+  <button class="tb-btn danger" id="run-reg-btn" onclick="runRegression()" style="display:none">▶ Run</button>
+</div>
+
+<div id="layout">
+  <div id="left">
+    <h2>PDFs</h2>
+    <div id="pdf-list"></div>
+  </div>
+  <div id="center">
+    <div id="center-header">Select a PDF to view</div>
+    <div id="pdf-placeholder">← Select a PDF from the list</div>
+  </div>
+  <div id="right">
+    <div id="right-header">Standards (47)</div>
+    <div id="eval-progress">
+      <div class="eval-bar-wrap"><div class="eval-bar-fill" id="eval-bar"></div></div>
+      <div class="eval-status">
+        <span id="eval-status-text">Scanning…</span>
+        <span class="llm-indicator" id="llm-indicator">
+          <span class="llm-dot"></span>AI judge active
+        </span>
+      </div>
+    </div>
+    <div id="spinner">Evaluating…</div>
+    <div id="results-pane"></div>
+  </div>
+</div>
+
+<!-- Regression panel -->
+<div id="reg-panel">
+  <div id="reg-header">
+    <span>Regression corpus</span>
+    <button class="tb-btn" onclick="toggleRegression()">✕</button>
+  </div>
+  <div id="reg-body"><p style="padding:8px;font-size:11px;color:#888">Click "Run" to execute pinned checks.</p></div>
+</div>
+
+<!-- Main card dialog -->
+<div id="modal-overlay">
+  <div id="modal">
+    <div id="modal-header">
+      <div id="modal-header-text">
+        <div id="modal-title"></div>
+        <div id="modal-subtitle"></div>
+      </div>
+      <button id="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Change-request modal -->
+<div id="cr-overlay">
+  <div id="cr-modal">
+    <div id="cr-header">
+      <span>Generate change request</span>
+      <button class="tb-btn" onclick="closeCR()">✕</button>
+    </div>
+    <div id="cr-body">
+      <p style="font-size:11px;color:#555;margin-bottom:8px">
+        Describe the fix. The tool will assemble a complete handoff artifact for
+        Claude Code that includes the standard text, current check source, note
+        inputs, and hard constraints.
+      </p>
+      <label style="font-size:11px;font-weight:600">Desired verdict</label><br>
+      <select id="cr-desired" style="font-size:11px;margin:4px 0 8px;padding:3px 6px;border:1px solid #ccd;border-radius:3px">
+        <option value="pass">pass</option>
+        <option value="fail">fail</option>
+        <option value="manual_review">manual_review</option>
+        <option value="not_applicable">not_applicable</option>
+      </select><br>
+      <label style="font-size:11px;font-weight:600">Describe the change needed</label><br>
+      <textarea id="cr-desc" placeholder="e.g. The check should also recognise 'social and psychiatric history' as the psychiatric history section…" style="margin-top:4px"></textarea>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="generateCR()">Generate artifact</button>
+        <button class="btn btn-ghost" onclick="closeCR()">Cancel</button>
+      </div>
+      <div id="cr-result" style="display:none">
+        <p style="font-size:11px;color:#2d7a2d;margin:10px 0 4px">
+          ✓ Written to <code id="cr-file"></code>
+        </p>
+        <div class="btn-row" style="margin-bottom:8px">
+          <button class="btn btn-ghost" onclick="copyCR()">Copy to clipboard</button>
+        </div>
+        <pre id="cr-md"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
+"""
+
