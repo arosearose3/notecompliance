@@ -16,14 +16,19 @@ if TYPE_CHECKING:
     from compliance.judges.base import Judge
     from compliance.models import ContextBundle, Note
 
-RE_DATE_PHRASE = re.compile(
-    r"\bby\s+\d{1,2}/\d{1,2}/\d{2,4}\b"
-    r"|\bwithin\s+\d+\s+(?:days?|weeks?|months?)\b"
-    r"|\bin\s+\d+\s+(?:days?|weeks?|months?)\b"
-    r"|\bby\s+(?:january|february|march|april|may|june|july|august|"
-    r"september|october|november|december)\b",
-    re.IGNORECASE,
-)
+_NUM  = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|several|few|many)"
+_UNIT = r"(?:days?|weeks?|months?|years?)"
+
+RE_DATE_PHRASE = re.compile("|".join([
+    r"\bby\s+\d{1,2}/\d{1,2}/\d{2,4}\b",                           # by 4/14/2026
+    r"\(\d{1,2}/\d{1,2}/\d{2,4}\)",                                 # (4/14/2026)
+    r"\bestimated\s+completion\b",                                   # Estimated Completion:
+    r"\bwithin\s+" + _NUM + r"\s+" + _UNIT,                         # within 6 months
+    r"\bin\s+" + _NUM + r"\s+" + _UNIT,                             # in 3 weeks
+    r"\bover\s+the\s+next\s+" + _NUM + r"(?:\s+" + _UNIT + r")?",  # over the next 6 months
+    r"\bby\s+(?:january|february|march|april|may|june|july|august"
+    r"|september|october|november|december|end\s+of)\b",             # by January
+]), re.IGNORECASE)
 
 RE_LOC = re.compile(
     r"\b(outpatient|iop|php|intensive outpatient|partial hospital|inpatient|"
