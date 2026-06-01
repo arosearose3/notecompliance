@@ -1,4 +1,7 @@
 pdfplumber
-pikepdf
 flask
 pymupdf
+pyyaml
+
+# Optional: only needed for --judge claude (falls back to NullJudge if absent)
+# anthropic
