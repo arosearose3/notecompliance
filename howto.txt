@@ -1,0 +1,8 @@
+
+python fixtnpdf.py --input sourcedocs/ --providers licensedates.csv --output output/
+
+
+python trainstandards.py --input sourcedocs/
+
+Then open http://127.0.0.1:5000.
+

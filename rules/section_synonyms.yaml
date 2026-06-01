@@ -1,0 +1,12 @@
+# Section synonym overrides / additions.
+#
+# Each key is a canonical section name (matching SECTION_SYNONYMS in
+# compliance/extract/sections.py). When a key is present here it FULLY
+# REPLACES the code default for that canonical name, so copy the existing
+# synonyms before removing any.
+#
+# The trainstandards.py UI writes merged tables here (code defaults + edits)
+# so what you see below is always the full effective list.
+#
+# Start empty — code defaults apply until a key is overridden here.
+{}

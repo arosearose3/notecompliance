@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Clinical PDFs — contain PHI, never commit
+sourcedocs/
+sourcedocsArchive/
+archive/
+outputArch/
+output/
+
+# Provider/licensure CSVs — contain personal data
+*.csv
+
+# Generated audit reports — derived from PHI
+reports/
+
+# Change-request artifacts — may reference note structure
+rule_requests/
+
+# Regression corpus — pinned to local PDFs, not portable
+rules/corpus.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
