@@ -14,6 +14,7 @@ env/
 
 # Clinical PDFs — contain PHI, never commit
 sourcedocs/
+sourcedocs2/
 sourcedocsArchive/
 archive/
 outputArch/
