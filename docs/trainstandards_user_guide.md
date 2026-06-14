@@ -1,90 +1,22 @@
 # Standards Trainer — User Guide
 
-This guide explains how to use the Standards Trainer to review and improve the
-way the compliance engine grades clinical notes. You do not need to know how to
+This guide explains how to use the Standards Trainer to review and improve how
+the compliance engine grades clinical notes. You do not need to know how to
 code to use most of the features.
 
 ---
 
 ## Installation
 
-You only need to do this once on a new computer.
+You only need to do this once on a new computer. See `docs/install.md` for
+detailed platform-specific steps. The short version:
 
-### Step 1 — Get the code
-
-If you received a zip file, unzip it into a folder on your computer. If the
-project is in a git repository, clone it:
-
-```
-git clone <repository-url>
-cd fixtnpdf
-```
-
-### Step 2 — Install Python
-
-The tool requires **Python 3.11 or newer**. Check whether you already have it:
-
-```
-python3 --version
-```
-
-If the version shown is lower than 3.11, download the latest Python from
-[python.org](https://www.python.org/downloads/) and install it.
-
-### Step 3 — Install the Python packages
-
-In the project folder, run:
-
-```
-pip install -r requirements.txt
-```
-
-This installs `pdfplumber` (PDF reading), `pikepdf` (PDF writing), `flask`
-(the web server), and `pyyaml` (configuration files).
-
-### Step 4 — Install Ollama (for live AI judging)
-
-Ollama runs AI models on your own computer so no patient data ever leaves the
-building. This is the recommended judge for live prompt testing.
-
-1. Download Ollama from [ollama.com](https://ollama.com) and install it.
-2. Open a terminal and pull the model used by this project:
-
-```
-ollama pull qwen3.5:9b
-```
-
-3. Ollama starts automatically in the background after installation. You can
-   verify it is running with:
-
-```
-ollama list
-```
-
-You should see `qwen3.5:9b` in the list.
-
-### Step 5 — Verify everything works
-
-Run this quick check:
-
-```
-python trainstandards.py --input sourcedocs/ --judge ollama
-```
-
-Open your browser to **http://127.0.0.1:5000**. If you see the three-pane
-layout with PDFs listed on the left, the installation is complete.
-
----
-
-## What the Standards Trainer is
-
-The Standards Trainer is a web tool that runs on your computer. It lets you:
-
-1. **Look at any clinical note PDF** in your source folder.
-2. **See how the engine graded each of the 47 documentation standards** — did the note pass, fail, or need a human to review it?
-3. **Understand why** each verdict was reached — what text the engine found (or didn't find), and what question it would ask an AI reviewer.
-4. **Fix things that are wrong** — add missing keywords, change how strict a standard is, or rewrite the question used to judge a standard.
-5. **Track your improvements** by pinning expected grades and running a regression check to make sure your changes don't break other notes.
+1. Install Python 3.11 or newer.
+2. Install Ollama and pull the model: `ollama pull qwen3.5:9b`
+3. Download the project code.
+4. In the project folder: `pip install -r requirements.txt`
+   > This installs `pdfplumber` (reading PDFs), `pymupdf` (rewriting PDFs),
+   > `flask` (the web server), and `pyyaml` (configuration files).
 
 ---
 
@@ -96,15 +28,37 @@ Open a terminal, go to the project folder, and run:
 python trainstandards.py --input sourcedocs/ --judge ollama
 ```
 
-Then open your browser and go to: **http://127.0.0.1:5000**
+Then open your browser and go to **http://127.0.0.1:5000**
 
-The tool will stay running until you press **Ctrl-C** in the terminal.
+The tool stays running until you press **Ctrl-C** in the terminal.
 
-To start without a live AI judge (the tool still works, but "Test against
-this note" won't give real answers):
+### All startup options
 
-```
-python trainstandards.py --input sourcedocs/
+| Option | Default | Description |
+|---|---|---|
+| `--input <dir>` | `sourcedocs/` | Folder of PDF files to evaluate |
+| `--output <dir>` | `output/` | Where rewritten PDFs are saved |
+| `--ruleset <id>` | `optum_commercial` | Which payer's standards to evaluate against |
+| `--judge <name>` | `null` | AI judge: `null`, `ollama`, or `claude` |
+| `--no-ai` | off | Skip all AI calls; judgment checks show "skipped" |
+| `--ollama-model <m>` | `qwen3.5:9b` | Ollama model name |
+| `--ollama-url <url>` | `http://localhost:11434` | Ollama server address |
+| `--port <n>` | `5000` | Port for the web UI |
+
+**Quick recipes:**
+
+```bash
+# Fast scan — no AI, instant results
+python trainstandards.py --input sourcedocs/ --no-ai
+
+# Full AI judging (data stays on your machine)
+python trainstandards.py --input sourcedocs/ --judge ollama
+
+# Evaluate against Colorado Medicaid rules
+python trainstandards.py --input sourcedocs/ --ruleset medicaid_co
+
+# Different port if 5000 is in use
+python trainstandards.py --input sourcedocs/ --port 5001
 ```
 
 ---
@@ -118,320 +72,390 @@ python trainstandards.py --input sourcedocs/
 └──────────────┴──────────────────────────────┴──────────────────────┘
 ```
 
+### Top bar
+
+The top bar shows:
+
+- **Standards Trainer** — the app name.
+- **Ruleset selector** — a dropdown showing the active payer's rule set (e.g.
+  "Optum / UBH Commercial"). The active ruleset is set at startup with
+  `--ruleset`; the dropdown shows all available rulesets. To switch rulesets,
+  restart the tool with the new `--ruleset` value.
+- **↺ Reload rules** — picks up any changes you made to files in `rules/`
+  directly (in a text editor or after a git pull) without restarting the server.
+- **Regression (N)** — opens the regression panel showing your pinned expected
+  verdicts. N is how many pins you have.
+
 ### Left pane — PDF list
 
 Shows every PDF in your source folder. Each entry shows the file name and how
 many notes are inside it.
 
-**Click a PDF name** to load it. The center pane will show the PDF and the
-right pane will grade all its notes. This takes a few seconds — the engine is
-reading the PDF and running every check in real time.
+**Click a PDF name** to load it. The center pane shows the PDF and the right
+pane grades all its notes in real time — you'll see cards appear one by one as
+each check finishes.
 
 ### Center pane — PDF viewer
 
-Shows the PDF you selected. The browser's built-in PDF viewer is used, so you
-can scroll, zoom, and search just like any PDF.
-
-When you click a **"Jump to page"** button in a card's detail dialog, the
-center pane jumps to that page.
+Shows the PDF you selected using the browser's built-in viewer. Scroll, zoom,
+and search as you would any PDF. When you click a **"Jump to page"** button in
+a card's detail dialog, the center pane jumps to that page.
 
 ### Right pane — Standard cards (accordion style)
 
 Each note in the PDF gets its own collapsible section. Click a section header
-to expand or collapse it.
+to expand or collapse it. When you select a PDF, the first note opens
+automatically.
 
-When you select a PDF, the first note's section opens automatically and the
-center pane jumps to that note's first page.
+Each note shows one card for every standard in the active ruleset:
 
-Each note's section shows one card for every standard (A1 through K2 — 47 total):
-
-| Badge color | Meaning |
+| Badge | Meaning |
 |---|---|
-| **Red** FAIL | The rule checked for something and it was missing or wrong. |
-| **Orange** REVIEW | The engine can't decide by itself — a human needs to look. |
-| **Green** PASS | The rule found what it was looking for. |
-| **Grey** N/A | This standard doesn't apply to this type of note. |
+| 🔴 **FAIL** | The rule checked and found something missing or wrong. |
+| 🟠 **REVIEW** | The engine can't decide — a human needs to look. |
+| 🟢 **PASS** | The rule found what it was looking for. |
+| ⬜ **N/A** | This standard doesn't apply to this note type. |
+| ➖ **SKIPPED** | AI judging was disabled (`--no-ai`). Re-run with `--judge ollama` to evaluate. |
 
-The section header itself shows a summary of failures and reviews so you can
+The section header shows a summary count of failures and reviews so you can
 spot problem notes without opening them.
 
 ---
 
 ## Looking at a card in detail
 
-Click any non-grey card to open the **detail dialog**. The dialog has several
-sections:
+Click any non-grey, non-skipped card to open the **detail dialog**.
 
 ### Applicability and Verdict
 
-Shows whether this standard is **Required** (R), **Conditional** (C — only
-required in certain situations), or not applicable for this note type. Then
-shows the verdict (Pass, Fail, Review, or N/A) and a plain-English explanation.
+Shows whether this standard is **Required** (R) or **Conditional** (C) for
+this note type, and the verdict with a plain-English explanation.
+
+### Payer standard (verbatim)
+
+The exact wording from the payer's documentation requirements — what the rule
+is actually checking for.
 
 ### Evidence
 
-If the engine found something relevant in the note, it shows the exact text it
-found. This is proof for a Pass, or clue for a Fail.
+The exact text from the note that the engine found. This is the proof for a
+Pass, or a clue for a Fail.
 
 ### Source pages
 
-If the finding came from a specific page, a **Jump to page N** button lets you
-go straight to it.
+**Jump to page N** buttons go straight to the relevant page in the center pane.
 
 ### Judge path
 
-For standards that can't be checked by simple rules, the engine asks a question
-— these are the "judgment" checks. The dialog shows:
+For standards that need AI judgment, shows the question sent to the AI, the
+note text (context) the AI read, and the AI's answer. Under `--no-ai` or the
+default null judge, the question is still shown so you can read and improve it
+without spending AI time.
 
-- The **question** that would be sent to an AI reviewer.
-- The **note text** (context) that the AI would read.
-- The **answer** the AI gave (under the default "null" judge, it always says
-  "manual review" because no AI is connected yet, but the question is still
-  shown so you can see and improve it).
+### Rule inputs
 
-### Rule inputs — header fields
+Shows the structured data extracted from the note: header fields (date,
+clinician, service code) and the list of named sections found in the note body
+(diagnosis, presenting\_problem, medications, etc.). If the engine missed a
+section, this list tells you what it did and didn't find.
 
-Shows all the structured data the engine extracted from the note header: date,
-clinician, service code, member name, etc.
+### Actions
 
-### Rule inputs — sections extracted
+At the bottom of every dialog:
 
-Shows the list of named sections the engine found in the note body (like
-"diagnosis", "presenting\_problem", "medications"). If the engine missed a
-section, this list is your clue.
+- **📌 Pin verdict to corpus** — saves the current verdict as the expected
+  value for regression testing (see Regression below).
+- **Tier 3a: Generate change request** — creates a handoff document for making
+  a code-level rule change.
+- **Author a rewrite…** — appears on failing cards for standards that can be
+  corrected by editing the PDF (see PDF Rewrite below). Not shown for standards
+  whose remedy requires new clinical content — those can't be fixed by editing
+  the file.
+
+---
+
+## Rulesets — evaluating against different payers
+
+Different insurance payers have different documentation requirements. The
+Standards Trainer supports multiple **rulesets** — one per payer — so you can
+evaluate the same notes against Commercial or Medicaid rules and see where the
+verdicts differ.
+
+### Selecting a ruleset
+
+```bash
+python trainstandards.py --input sourcedocs/ --ruleset optum_commercial  # default
+python trainstandards.py --input sourcedocs/ --ruleset medicaid_co
+```
+
+The active ruleset appears in the top bar dropdown and is shown in the startup
+banner:
+
+```
+Ruleset: Colorado Medicaid / HCPF (medicaid_co)
+```
+
+### Available rulesets
+
+| ID | Label | Description |
+|---|---|---|
+| `optum_commercial` | Optum / UBH Commercial | Default. Optum Provider Manual content standards. |
+| `medicaid_co` | Colorado Medicaid / HCPF | Colorado Medicaid behavioral health standards (inherits Commercial as baseline; overrides where Medicaid differs). |
+
+### Where ruleset data lives
+
+Each ruleset has its own subtree under `rules/`:
+
+```
+rules/
+  section_synonyms.yaml          ← shared across all rulesets (EHR vocabulary)
+  optum_commercial/
+    ruleset.yaml                 ← standard list, order, titles
+    applicability.yaml           ← R/C/None per doc type
+    thresholds.yaml              ← numeric limits (e.g. late-entry hours)
+    payer_text.yaml              ← verbatim payer requirement text
+    prompts/<ID>.md              ← judge question overrides
+    corpus.json                  ← pinned verdicts (per-ruleset)
+    rewrites.yaml                ← Tier-R1 declarative PDF rewrites
+  medicaid_co/
+    ruleset.yaml
+    applicability.yaml
+    thresholds.yaml
+    ...
+```
+
+All of the editable files listed in the **Fixing things** section below
+(synonyms, applicability, thresholds, prompts, corpus) are **per-ruleset**
+when you use `--ruleset`. Pinning a verdict pins it under the active ruleset's
+corpus; running regression checks that ruleset's corpus.
 
 ---
 
 ## Fixing things that are wrong (the three tiers)
 
-### Tier 1 — Add or change section synonyms
+### Tier 1 — Section synonyms and applicability
 
-**When to use this:** A standard failed because the engine couldn't find a
-named section, but the section IS there — it's just labeled differently in the
-note. For example, a note might say "Reason for Referral" instead of
-"Presenting Problem".
+**When to use:** A standard failed because the engine couldn't find a named
+section, but the section is there — labeled differently. For example, a note
+might say "Reason for Referral" instead of "Presenting Problem."
 
-**How:**
+**Add a synonym:**
 
 1. Open the failing card's detail dialog.
-2. Scroll down to **"Sections not found — add synonyms to fix"**. You'll see
-   the section names the engine was looking for but didn't find.
+2. Scroll to **"Sections not found — add synonyms to fix"**.
 3. Click **Edit synonyms** next to the missing section name.
-4. You'll see a list of the current synonyms (the phrases the engine searches for).
-5. Type a new phrase in the input box and click **Add**.
-6. Click **Save & re-evaluate**. The tool immediately re-grades the current PDF
-   with your new synonym and refreshes the cards — no restart needed.
+4. Type the new phrase and click **Add**, then **Save & re-evaluate**.
 
-Your change is saved to `rules/section_synonyms.yaml`. It applies to all future
-evaluations.
+The tool immediately re-grades the PDF with your new synonym. Your change is
+saved to `rules/section_synonyms.yaml` (shared across all rulesets — section
+names are EHR vocabulary, not payer policy).
 
-**Also: Tier 1 — Change applicability**
+**Change applicability (R / C / N/A):**
 
-If a standard is marked Required for a note type but shouldn't be, or vice
-versa, click **Edit applicability matrix** in the dialog. You can change any
-doc-type from Required → Conditional → Not applicable, save, and the cards
-update immediately.
+Click **Edit applicability matrix** in the dialog to change whether a standard
+is Required, Conditional, or not applicable for a given note type. Changes are
+saved to `rules/<ruleset>/applicability.yaml` and take effect immediately. They
+only affect the active ruleset.
 
-### Tier 2 — Edit the question used to judge a standard
+**Change a threshold:**
 
-**When to use this:** A standard is being judged by an AI, and the AI is
-giving the wrong answer because the question isn't specific enough. You want to
-rewrite the question.
+Thresholds (e.g. the number of hours after which a late-entry notation is
+required) live in `rules/<ruleset>/thresholds.yaml`. Edit the file directly
+and click **↺ Reload rules** in the top bar.
 
-**How:**
+### Tier 2 — Edit the judge question
 
-1. Open the card's detail dialog.
-2. In the **Judge path** section, you'll see an **Edit judge prompt** panel.
-3. The current question is shown in a text box. Edit it — you can make it more
-   specific, add examples, or clarify what you're looking for.
-4. Click **Test against this note** to try your new question against this note's
-   text and see the AI's new verdict in real time.
-   > Note: live testing requires starting the tool with `--judge ollama` (or
-   > `--judge claude`). With the default null judge, the answer will always
-   > be "manual review" — but you can still see and edit how the question reads.
-5. If you're happy with the result, click **Save prompt**. The question is saved
-   to `rules/prompts/<StandardID>.md` and will be used for all future checks.
-6. If you want to go back to the original built-in question, click
-   **Remove override**.
+**When to use:** A standard is graded by AI and the AI is giving the wrong
+answer because the question isn't specific enough.
 
-### Tier 3a — Generate a change request for Claude Code
+1. Open the card's detail dialog → **Judge path** section.
+2. Edit the question in the text box.
+3. Click **Test against this note** to try it with the live AI judge.
+   > Requires `--judge ollama` or `--judge claude`. With null judge or
+   > `--no-ai`, the question is still editable but test results are placeholder.
+4. Click **Save prompt** to save to `rules/<ruleset>/prompts/<ID>.md`.
+5. Click **Remove override** to go back to the built-in question.
 
-**When to use this:** The rule needs new logic that can't be fixed by changing
-synonyms or the judge question. For example, the check for late entries needs to
-use a 72-hour window instead of 24 hours.
+### Tier 3a — Generate a code change request
 
-**How:**
+**When to use:** The detection logic itself needs to change — not just
+synonyms, applicability, or the AI question. For example, adding a new pattern
+the check should recognize, or changing the window for a time-based rule.
 
-1. Open the card's detail dialog.
-2. Scroll to the bottom and click **Tier 3a: Generate change request**.
-3. Choose the verdict the note should get, and describe in plain English what
-   needs to change.
-4. Click **Generate artifact**. The tool creates a complete document in the
-   `rule_requests/` folder containing:
-   - The full text of the standard.
-   - The current check code.
-   - The note's extracted data (no patient text).
-   - Your description and desired outcome.
-   - Hard rules that any code change must follow.
-5. Click **Copy to clipboard** and paste it into Claude Code (or any coding AI).
-   The coding AI will write the new Python code, which you then review and commit.
+1. Open the card's detail dialog → scroll to the bottom.
+2. Click **Tier 3a: Generate change request**.
+3. Describe what needs to change and click **Generate artifact**.
+4. The tool creates a document in `rule_requests/` with the full standard text,
+   the current check code, the note's extracted data (no patient text), your
+   description, and hard constraints the new code must satisfy.
+5. Click **Copy to clipboard** and paste it into Claude Code. The AI writes
+   the new code; you review and commit it.
+
+---
+
+## PDF Rewrite — correcting administrative metadata
+
+Some failing standards can be fixed by **editing the PDF itself** — correcting
+a credential, adding a boilerplate phrase, normalizing a field that exists but
+is labeled wrong. The Standards Trainer can do this under your supervision.
+
+**What can be rewritten:**
+
+| Standard | What's fixable |
+|---|---|
+| A1 | Member ID / name metadata |
+| A2–A3 | Admin header fields |
+| B1–B2 | Date and entry timestamp fields |
+| F6–F7 | Clinician credential and signature |
+| K1 | Telehealth delivery statement |
+
+Standards whose remedy is **absent clinical content** (a missing Mental Status
+Exam, an unwritten risk assessment, etc.) do not show a rewrite button. Those
+require new documentation, not a file edit.
+
+### How to author a rewrite
+
+1. Open a failing card for a rewritable standard.
+2. Click **Author a rewrite…** in the Actions section.
+3. A panel opens with four steps:
+
+   **Step 1 — Select spans.** The tool lists every text span in the note
+   (header spans highlighted first — those are the usual targets). Tick the
+   span(s) you want to fix.
+
+   **Step 2 — Choose action.** Pick the type of correction from the dropdown
+   (e.g. "Correct provider credential"). Built-in actions appear automatically.
+
+   **Step 3 — Preview.** Click **Preview changes**. The tool shows a
+   side-by-side diff of every span it will change. If any replacement is wider
+   than the original, it warns you — tick the acknowledgement to proceed.
+
+   **Step 4 — Apply.** Click **Apply rewrite to PDF**. The corrected PDF is
+   written to the output folder (`output/` by default). The original is never
+   touched.
+
+4. A link appears to **View rewritten PDF** — the center pane can show the
+   corrected copy. You can then **Re-evaluate** to confirm the card flips from
+   Fail to Pass.
+
+> **Note:** All rewritten PDFs go to the `--output` directory. An audit trail
+> (`.rewrite.json`) is written alongside every corrected PDF recording exactly
+> what changed, when, and which standard it addressed.
+
+### Tier R1 — Declarative rewrites (no code)
+
+Simple find-and-replace rewrites (e.g. "add a telehealth statement to every
+signature block") can be authored entirely in the UI and saved to
+`rules/<ruleset>/rewrites.yaml` without writing Python. These are available in
+the action dropdown once saved.
+
+### Tier R3 — Data-driven rewrites (codegen)
+
+Rewrites that need date-math or CSV lookup (like the credential fix that checks
+licensure dates) require a code change. Click **Tier 3: Generate codegen
+request** to create an artifact you can paste into Claude Code — same
+workflow as Tier 3a for rule changes.
 
 ---
 
 ## Regression — making sure you don't break other notes
 
-Every time you change a synonym, prompt, or rule, there's a risk it will fix
-one note but break a different one. The **Regression corpus** is a safety net.
+Every time you change a synonym, prompt, threshold, or rule, there's a risk it
+fixes one note but breaks another. The **regression corpus** is the safety net.
 
 ### Pinning a verdict
 
-When a card shows the correct verdict, click **Pin verdict to corpus** in the
-dialog's Actions section. This saves the expected verdict for that standard and
-note. You can pin as many as you like across different PDFs.
+When a card shows the correct verdict, click **📌 Pin verdict to corpus** in
+the dialog. This saves the expected verdict for that standard, note, and PDF.
+Pins are stored in `rules/<ruleset>/corpus.json` — they travel with the code.
 
 ### Running the regression check
 
-Click the **Regression (N)** button in the top bar (N shows how many pins you
-have). Then click **▶ Run**. The tool re-checks every pinned item and shows
-the results:
+Click **Regression (N)** in the top bar → **▶ Run**. The tool re-checks every
+pinned item against the active ruleset and shows results:
 
-- **Green rows** = still matching the expected verdict (good).
-- **Red rows** = the verdict changed — something you did may have caused a
-  regression. Investigate before applying the change to production.
+- **Green rows** — verdict still matches the expected value. ✓
+- **Red rows** — verdict changed. Something may have regressed. Investigate
+  before shipping the change.
 
-The corpus is saved to `rules/corpus.json` under git, so it travels with the
-code and can be run by anyone on the team.
+The corpus only contains entries for the active ruleset, so Commercial and
+Medicaid pins don't interfere with each other.
 
 ### Reload rules
 
-After changing any file in `rules/` directly (in a text editor or after a git
-pull), click **↺ Reload rules** in the top bar. The tool picks up the new
-configuration without restarting.
+After editing any file in `rules/` directly or after a `git pull`, click
+**↺ Reload rules** in the top bar. Config changes take effect immediately
+without restarting.
 
 ---
 
 ## Where files live
 
+### Shared (not ruleset-specific)
+
 | Location | What it is |
 |---|---|
-| `rules/section_synonyms.yaml` | Section synonym overrides |
-| `rules/applicability.yaml` | Applicability matrix overrides |
-| `rules/thresholds.yaml` | Numeric thresholds (e.g. late-entry hours) |
-| `rules/prompts/<ID>.md` | Judge question for standard ID (one file per judgment check) |
-| `rules/corpus.json` | Pinned expected verdicts for regression |
-| `rule_requests/` | Change-request artifacts generated by Tier 3a |
-| `compliance/checks/*.py` | The actual check code (only changed via Tier 3a + code review) |
+| `rules/section_synonyms.yaml` | Section synonym overrides (EHR vocabulary, shared across payers) |
+| `rule_requests/` | Change-request artifacts generated by Tier 3a and Tier R3 |
+| `output/` | Rewritten PDFs and their `.rewrite.json` audit manifests |
+| `compliance/checks/*.py` | Check code — only changed via Tier 3a + code review |
+
+### Per-ruleset (under `rules/<ruleset_id>/`)
+
+| File | What it is |
+|---|---|
+| `ruleset.yaml` | Standard list, order, and titles |
+| `applicability.yaml` | R / C / None per doc type (overrides the built-in matrix) |
+| `thresholds.yaml` | Numeric limits (e.g. `late_entry_hours: 24`) |
+| `payer_text.yaml` | Verbatim requirement text shown in card dialogs |
+| `prompts/<ID>.md` | Judge question override for a specific standard |
+| `corpus.json` | Pinned expected verdicts for regression |
+| `rewrites.yaml` | Tier-R1 declarative PDF rewrite actions |
 
 ---
 
-## Startup options
+## Resetting configurations to defaults
 
-### Different PDF folder
+All editable config lives in `rules/<ruleset>/`. To reset anything, restore or
+delete the file — the engine falls back to built-in values.
 
-```
-python trainstandards.py --input path/to/your/pdfs/
-```
+### Reset section synonyms (shared)
 
-### Live AI judging with Ollama (recommended — data stays on-machine)
+Delete or clear `rules/section_synonyms.yaml` (replace content with `{}`).
+Built-in synonyms in `compliance/extract/sections.py` take effect.
 
-```
-python trainstandards.py --input sourcedocs/ --judge ollama
-```
+### Reset applicability for a ruleset
 
-Ollama must be running and `qwen3.5:9b` must be installed (see Installation
-above). By default the tool connects to `http://localhost:11434`.
+Delete or clear `rules/<ruleset>/applicability.yaml` (replace with `{}`).
 
-To use a different model or a remote Ollama server:
+### Reset thresholds for a ruleset
 
-```
-python trainstandards.py --judge ollama --ollama-model mistral --ollama-url http://192.168.1.10:11434
-```
-
-### Live AI judging with Claude (sends data off-machine)
-
-```
-python trainstandards.py --input sourcedocs/ --judge claude
-```
-
-This requires the `ANTHROPIC_API_KEY` environment variable and a Business
-Associate Agreement (BAA) with Anthropic before using on real patient notes.
-
----
-
-## Resetting standard configurations to the original defaults
-
-All the configuration files that the tool writes to are in the `rules/`
-folder. To reset any of them, you restore or delete the file — the engine
-will automatically fall back to the original built-in values.
-
-### Reset section synonyms
-
-The original synonyms are built into the code in
-`compliance/extract/sections.py`. To go back to them, either:
-
-- **Delete the file:** `rules/section_synonyms.yaml` → delete or rename it.
-  The code defaults will be used on the next evaluation.
-- **Or overwrite it with an empty config:**
-  Open `rules/section_synonyms.yaml` in a text editor and replace all
-  content with just `{}`. Save it.
-
-### Reset applicability overrides
-
-- **Delete or clear** `rules/applicability.yaml` (replace content with `{}`).
-  The built-in applicability matrix in `compliance/applicability.py` will
-  take effect again.
-
-### Reset thresholds
-
-- **Delete or clear** `rules/thresholds.yaml`.
-  Default thresholds (e.g. 24-hour late-entry window) are restored.
+Delete or clear `rules/<ruleset>/thresholds.yaml`.
 
 ### Reset a single judge prompt
 
-- **Delete the file** `rules/prompts/<ID>.md` for the standard you want to
-  reset. For example, to reset the D1 prompt:
-  ```
-  rm rules/prompts/D1.md
-  ```
-  The original question built into `compliance/checks/d_assessment.py` will
-  be used again. You can also do this from inside the tool: open the card
-  dialog → Judge path → **Remove override**.
+Delete `rules/<ruleset>/prompts/<ID>.md`, or use the **Remove override** button
+in the card dialog.
 
-### Reset all prompts
+### Reset all prompts for a ruleset
 
+```bash
+rm rules/optum_commercial/prompts/*.md
+git checkout -- rules/optum_commercial/prompts/   # if using git
 ```
-rm rules/prompts/*.md
-```
-
-Then re-run the setup step below to restore the original seeded questions:
-
-```
-git checkout rules/prompts/
-```
-
-If the project is not in git, the original prompt files are listed in the
-`compliance/checks/*.py` source files — look for the `question=` argument
-inside each `judge.evaluate(...)` call.
 
 ### Reset the regression corpus
 
-The corpus is your own pinned expected verdicts — there are no built-in
-entries to restore. To start fresh:
+Replace `rules/<ruleset>/corpus.json` with `[]`.
 
-- Delete or empty the file: `rules/corpus.json` → replace with `[]`.
+### Full reset (everything, all rulesets)
 
-### Full reset (everything at once)
-
-If your project is in git, this restores all `rules/` files to the last
-committed state in one command:
-
-```
-git checkout -- rules/
+```bash
+git checkout -- rules/   # restores all rules/ files to last commit
 ```
 
-If not in git, delete the `rules/` folder entirely and restart the tool.
-The tool will recreate what it needs, and the built-in code defaults will
-apply for everything else.
+If not using git, delete `rules/<ruleset>/` subdirectories (keep
+`section_synonyms.yaml` at the top level) and restart the tool.
 
 ---
 
@@ -440,7 +464,10 @@ apply for everything else.
 | Situation | Solution |
 |---|---|
 | Engine missed a section because it's labeled differently | Tier 1: Edit synonyms |
-| A standard fires on notes where it shouldn't | Tier 1: Edit applicability matrix |
-| AI judge gives wrong verdict for a judgment check | Tier 2: Edit the judge prompt |
-| The detection logic itself needs to change | Tier 3a: Generate change request |
+| A standard fires on notes where it shouldn't (or vice versa) | Tier 1: Edit applicability matrix |
+| Threshold is wrong (e.g. late-entry window) | Edit `rules/<ruleset>/thresholds.yaml`, reload |
+| AI judge gives wrong verdict | Tier 2: Edit the judge prompt |
+| Detection logic itself needs to change | Tier 3a: Generate change request |
+| Admin metadata in PDF is wrong (credential, date field) | PDF Rewrite: Author a rewrite |
 | After any change, verify nothing else broke | Run regression corpus |
+| Want to evaluate against a different payer | Restart with `--ruleset <id>` |
