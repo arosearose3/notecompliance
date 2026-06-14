@@ -1,0 +1,13 @@
+# Applicability matrix overrides.
+#
+# Format:  standard_id: {doc_type: "R" | "C" | null}
+# A doc_type entry here overrides the corresponding cell in the hardcoded
+# MATRIX in compliance/applicability.py.  Omit a standard entirely to use
+# the code default.
+#
+# Example — make A2 conditional (not required) for intake notes:
+#   A2:
+#     intake: "C"
+#
+# Start empty — code defaults apply.
+{}

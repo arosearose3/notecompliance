@@ -1,0 +1,27 @@
+id: medicaid_co
+label: "Colorado Medicaid / HCPF"
+description: >
+  Colorado Medicaid (Health Care Policy and Financing) behavioral health
+  documentation standards. Inherits all Optum commercial standards as a baseline;
+  this manifest contains only the deltas (changed applicability, thresholds,
+  payer text, or check logic overrides).
+
+extends: optum_commercial
+
+# ── Standards that differ from optum_commercial ───────────────────────────────
+#
+# Only list standards whose title, impl, or per-standard data differs.
+# Everything else is inherited unchanged from optum_commercial.
+#
+# To override check logic (code-varies), add:
+#   impl: compliance.checks.rulesets.medicaid_co.<module>.<ClassName>
+#
+# Example (uncomment when a Medicaid-specific E6 check is implemented):
+# standards:
+#   - id: E6
+#     title: "Goal time frames (Medicaid)"
+#     impl: compliance.checks.rulesets.medicaid_co.e_treatment_plan.CheckE6Medicaid
+
+# For now this is a data-only ruleset (no code-varies overrides).
+# All 49 standards are inherited from optum_commercial.
+# See applicability.yaml and thresholds.yaml for the data deltas.

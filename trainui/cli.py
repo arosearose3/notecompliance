@@ -33,6 +33,11 @@ def main() -> None:
         "--no-ai", action="store_true",
         help="Skip all LLM judge calls; judgment-based checks return 'skipped' instantly",
     )
+    parser.add_argument(
+        "--ruleset", default=None,
+        help="Ruleset ID to evaluate against (default: optum_commercial). "
+             "Available rulesets are discovered from rules/<id>/ruleset.yaml.",
+    )
     args = parser.parse_args()
 
     source_dir = Path(args.input)
@@ -66,13 +71,20 @@ def main() -> None:
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    from compliance.ruleset import get_ruleset
+    try:
+        ruleset = get_ruleset(args.ruleset)
+    except FileNotFoundError as e:
+        sys.exit(f"Ruleset not found: {e}")
+
     from trainui.app import create_app
-    app = create_app(source_dir, inner, output_dir)
+    app = create_app(source_dir, inner, output_dir, ruleset=ruleset)
 
     print(f"Standards Trainer — http://{args.host}:{args.port}")
     print(f"Source:  {source_dir.resolve()}")
     print(f"Output:  {output_dir.resolve()}")
     print(f"Rules:   {RULES_DIR.resolve()}")
+    print(f"Ruleset: {ruleset.label} ({ruleset.id})")
     print(f"Judge:   {getattr(inner, 'name', args.judge)}")
     print("Press Ctrl-C to quit.\n")
     app.run(host=args.host, port=args.port, debug=False)

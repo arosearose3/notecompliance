@@ -1,0 +1,8 @@
+# Colorado Medicaid verbatim payer requirement text.
+#
+# Only include standards whose payer text differs from optum_commercial.
+# All other standards inherit their payer text from optum_commercial.
+#
+# Add entries here as Colorado Medicaid source documents are reviewed.
+# Format:
+#   A1: "The member's Medicaid ID must appear on each page of the record."

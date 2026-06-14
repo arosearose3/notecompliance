@@ -10,6 +10,7 @@
 <div id="topbar">
   <h1>Standards Trainer</h1>
   <span class="sub" id="source-label"></span>
+  <select id="ruleset-select" class="tb-select" title="Active ruleset" onchange="alert('Reload the page with --ruleset ' + this.value + ' to switch rulesets.')"></select>
   <button class="tb-btn" onclick="reloadRules()">↺ Reload rules</button>
   <button class="tb-btn" id="reg-btn" onclick="toggleRegression()">Regression <span id="corpus-count">(0)</span></button>
   <button class="tb-btn danger" id="run-reg-btn" onclick="runRegression()" style="display:none">▶ Run</button>

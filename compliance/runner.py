@@ -8,75 +8,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from compliance import applicability
-from compliance.checks.base import CheckResult, not_applicable
-from compliance.checks import (
-    a_identification, b_entry, c_medication, d_assessment,
-    e_treatment_plan, f_progress, g_discharge_planning,
-    h_discharge_summary, i_coordination, j_referrals, k_telehealth,
-)
 from compliance.ingest import ingest_directory, split_notes
 from compliance.judges.null import NullJudge
 from compliance.models import ContextBundle, Note
+from compliance.checks.base import CheckResult, not_applicable
+from compliance.ruleset import Ruleset, get_ruleset
 
 if TYPE_CHECKING:
     from compliance.judges.base import Judge
-
-# ── Check registry ────────────────────────────────────────────────────────────
-
-ALL_CHECKS = [
-    a_identification.CheckA1(),
-    a_identification.CheckA2(),
-    a_identification.CheckA3(),
-    a_identification.CheckA4(),
-    a_identification.CheckA5(),
-    b_entry.CheckB1(),
-    b_entry.CheckB2(),
-    c_medication.CheckC1(),
-    c_medication.CheckC2a(),
-    c_medication.CheckC2b(),
-    c_medication.CheckC2c(),
-    c_medication.CheckC2d(),
-    c_medication.CheckC2e(),
-    d_assessment.CheckD1(),
-    d_assessment.CheckD2(),
-    d_assessment.CheckD3(),
-    d_assessment.CheckD4(),
-    d_assessment.CheckD5(),
-    d_assessment.CheckD6(),
-    d_assessment.CheckD7(),
-    d_assessment.CheckD8(),
-    d_assessment.CheckD9(),
-    e_treatment_plan.CheckE1(),
-    e_treatment_plan.CheckE2(),
-    e_treatment_plan.CheckE3(),
-    e_treatment_plan.CheckE4(),
-    e_treatment_plan.CheckE5(),
-    e_treatment_plan.CheckE6(),
-    e_treatment_plan.CheckE7(),
-    e_treatment_plan.CheckE8(),
-    e_treatment_plan.CheckE9(),
-    e_treatment_plan.CheckE10(),
-    f_progress.CheckF1(),
-    f_progress.CheckF2(),
-    f_progress.CheckF3(),
-    f_progress.CheckF4(),
-    f_progress.CheckF5(),
-    f_progress.CheckF6(),
-    f_progress.CheckF7(),
-    f_progress.CheckF8(),
-    g_discharge_planning.CheckG1(),
-    h_discharge_summary.CheckH1(),
-    h_discharge_summary.CheckH2(),
-    h_discharge_summary.CheckH3(),
-    i_coordination.CheckI1(),
-    i_coordination.CheckI2(),
-    j_referrals.CheckJ1(),
-    k_telehealth.CheckK1(),
-    k_telehealth.CheckK2(),
-]
-
-_CHECK_MAP = {c.standard_id: c for c in ALL_CHECKS}
 
 
 # ── Report dataclass ──────────────────────────────────────────────────────────
@@ -85,6 +24,7 @@ _CHECK_MAP = {c.standard_id: c for c in ALL_CHECKS}
 class NoteReport:
     note: Note
     results: list[CheckResult] = field(default_factory=list)
+    ruleset_id: str = "optum_commercial"
 
     @property
     def pass_rate(self) -> float:
@@ -108,15 +48,18 @@ def run_note(
     note: Note,
     judge: "Judge | None" = None,
     bundle: ContextBundle | None = None,
+    ruleset: Ruleset | None = None,
 ) -> NoteReport:
     """Run all applicable checks against a single note."""
     if judge is None:
         judge = NullJudge()
+    if ruleset is None:
+        ruleset = get_ruleset()
 
     results: list[CheckResult] = []
-    applicable_ids = applicability.get_applicable_standards(note.note_type)
+    applicable_ids = set(ruleset.get_applicable_standards(note.note_type))
 
-    for check in ALL_CHECKS:
+    for check in ruleset.checks():
         sid = check.standard_id
         if sid not in applicable_ids:
             continue
@@ -126,7 +69,7 @@ def run_note(
             result = not_applicable(sid, f"Check error: {exc}")
         results.append(result)
 
-    return NoteReport(note=note, results=results)
+    return NoteReport(note=note, results=results, ruleset_id=ruleset.id)
 
 
 def _build_bundles(notes: list[Note]) -> dict[str, ContextBundle]:
@@ -143,10 +86,13 @@ def _build_bundles(notes: list[Note]) -> dict[str, ContextBundle]:
 def run_batch(
     input_dir: Path,
     judge: "Judge | None" = None,
+    ruleset: Ruleset | None = None,
 ) -> list[NoteReport]:
     """Ingest all PDFs in input_dir and run compliance checks."""
     if judge is None:
         judge = NullJudge()
+    if ruleset is None:
+        ruleset = get_ruleset()
 
     notes = ingest_directory(input_dir)
     bundles = _build_bundles(notes)
@@ -154,7 +100,26 @@ def run_batch(
     reports: list[NoteReport] = []
     for note in notes:
         bundle = bundles.get(note.header.member_name or "unknown")
-        report = run_note(note, judge, bundle)
+        report = run_note(note, judge, bundle, ruleset=ruleset)
         reports.append(report)
 
     return reports
+
+
+# ── Back-compat: keep ALL_CHECKS accessible for code that imports it directly ──
+# This is the single ALL_CHECKS; trainui/data.py re-exports from here.
+
+def _get_default_checks():
+    """Return the default ruleset's check list (lazy, avoids import cycles)."""
+    return get_ruleset().checks()
+
+
+# Provide a module-level ALL_CHECKS for backward compatibility
+# (evaluated lazily on first access via __getattr__)
+def __getattr__(name: str):
+    if name == "ALL_CHECKS":
+        return get_ruleset().checks()
+    if name == "_CHECK_MAP":
+        checks = get_ruleset().checks()
+        return {c.standard_id: c for c in checks}
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

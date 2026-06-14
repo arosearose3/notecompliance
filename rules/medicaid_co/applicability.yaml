@@ -1,0 +1,19 @@
+# Colorado Medicaid applicability overrides.
+#
+# Format: standard_id: {doc_type: "R" | "C" | null}
+# Only entries that differ from optum_commercial need to appear here.
+# The base optum_commercial matrix applies for everything else.
+#
+# Examples of Medicaid differences (uncomment and adjust as rules are confirmed):
+#
+# Colorado Medicaid requires explicit goals documentation in progress notes
+# (optum_commercial marks E7 as treatment_plan only):
+# E7:
+#   progress: "R"
+#
+# Colorado Medicaid requires coordination documentation for treatment plans too:
+# I1:
+#   treatment_plan: "R"
+#
+# Start empty — inherits all applicability from optum_commercial.
+{}

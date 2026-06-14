@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from compliance import config as cfg
 from trainui.artifacts import build_request_artifact, read_check_source
@@ -15,7 +15,9 @@ bp_misc = Blueprint("misc", __name__)
 
 @bp_misc.route("/api/generate-request", methods=["POST"])
 def api_generate_request():
-    body   = request.get_json(force=True)
+    ruleset = current_app.config["RULESET"]
+    body    = request.get_json(force=True)
+    body["ruleset_id"] = ruleset.id
     sid    = body.get("standard_id", "unknown")
     ts     = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     source = read_check_source(sid)
@@ -31,4 +33,6 @@ def api_reload():
     cfg.invalidate()
     from compliance.extract import sections as sec_mod
     sec_mod._PATTERN_CACHE.clear()
+    from compliance.ruleset import invalidate_ruleset_cache
+    invalidate_ruleset_cache()
     return jsonify({"ok": True})

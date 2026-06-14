@@ -63,9 +63,10 @@ def api_evaluate_stream():
         return err
 
     inner_judge = current_app.config["INNER_JUDGE"]
+    ruleset     = current_app.config["RULESET"]
 
     return Response(
-        stream_with_context(evaluate_pdf_stream(candidate, inner_judge)),
+        stream_with_context(evaluate_pdf_stream(candidate, inner_judge, ruleset=ruleset)),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -86,8 +87,20 @@ def api_evaluate():
     if err:
         return err
     inner_judge = current_app.config["INNER_JUDGE"]
+    ruleset     = current_app.config["RULESET"]
     try:
-        result = evaluate_pdf(candidate, inner_judge)
+        result = evaluate_pdf(candidate, inner_judge, ruleset=ruleset)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     return jsonify(result)
+
+
+@bp_core.route("/api/rulesets")
+def api_rulesets():
+    """Return all available rulesets and the currently active one."""
+    from compliance.ruleset import list_rulesets
+    ruleset = current_app.config["RULESET"]
+    return jsonify({
+        "active": ruleset.id,
+        "rulesets": list_rulesets(),
+    })

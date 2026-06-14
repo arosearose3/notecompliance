@@ -1,0 +1,28 @@
+# Tier-R1 declarative rewrite actions.
+#
+# Each entry becomes a rewrite action in trainstandards.py without any Python code.
+# Edits to this file are picked up live (no server restart needed).
+#
+# Schema:
+#   id          : stable identifier (string, no spaces)
+#   label       : human label shown in the UI
+#   match:
+#     pattern   : text that must appear in the span to locate it
+#   replace:
+#     template  : replacement text; supports {clinician}, {credential},
+#                 {member}, {service_date}, {license_id}, {supervisor},
+#                 {location}, {service_code}
+#   applies_to  : list of doc types (progress, consultation, intake,
+#                 treatment_plan, discharge, group, family); omit for all types
+#
+# Example (disabled — uncomment to activate):
+#
+# - id: telehealth_modifier
+#   label: "Add telehealth delivery statement to signature"
+#   match:
+#     pattern: "signed this note"
+#   replace:
+#     template: "{clinician}, {credential}, telehealth session, signed this note"
+#   applies_to:
+#     - progress
+#     - consultation

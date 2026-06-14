@@ -19,6 +19,11 @@ except ImportError:
 # rules/ is one level above this file (compliance/ → parent → rules/)
 RULES_DIR = Path(__file__).parent.parent / "rules"
 
+
+def rules_dir_for(ruleset_id: str) -> Path:
+    """Return the rules directory for the given ruleset id."""
+    return RULES_DIR / ruleset_id
+
 _CACHE: dict[str, tuple[float, object]] = {}  # path-str → (mtime, value)
 
 

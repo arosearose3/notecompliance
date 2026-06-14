@@ -1,0 +1,9 @@
+# Colorado Medicaid thresholds.
+#
+# Only include values that differ from optum_commercial defaults.
+# Inherits late_entry_hours: 24 from optum_commercial unless overridden here.
+#
+# Example: Colorado Medicaid may require same-day entry for certain note types.
+# Uncomment and adjust once the exact requirement is confirmed:
+#
+# late_entry_hours: 24

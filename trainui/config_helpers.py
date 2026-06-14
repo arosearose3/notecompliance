@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from compliance import config as cfg
+from compliance.ruleset import get_ruleset
 
 
 def effective_synonyms() -> dict[str, list[str]]:
@@ -14,13 +15,11 @@ def effective_synonyms() -> dict[str, list[str]]:
     return merged
 
 
-def effective_matrix() -> dict[str, dict[str, str | None]]:
-    from compliance.applicability import MATRIX
-    import copy
-    merged = copy.deepcopy(MATRIX)
-    for sid, row in cfg.get_applicability_overrides().items():
-        if sid in merged:
-            merged[sid].update(row)
-        else:
-            merged[sid] = row
-    return merged
+def effective_matrix(ruleset_id: str | None = None) -> dict[str, dict[str, str | None]]:
+    """Return the fully resolved applicability matrix for the given ruleset."""
+    rs = get_ruleset(ruleset_id)
+    result: dict[str, dict[str, str | None]] = {}
+    for sid in rs.standard_order:
+        row = rs._matrix.get(sid, {})
+        result[sid] = dict(row)
+    return result

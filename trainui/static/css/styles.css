@@ -8,6 +8,10 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 13px;
           display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 #topbar h1 { font-size: 14px; font-weight: 600; letter-spacing: .3px; }
 #topbar .sub { font-size: 11px; color: #9ab; flex: 1; }
+.tb-select { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.3);
+             color: #fff; border-radius: 4px; padding: 3px 6px; font-size: 11px;
+             cursor: pointer; max-width: 200px; }
+.tb-select option { background: #1a2340; color: #fff; }
 .tb-btn { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
           color: #fff; border-radius: 4px; padding: 3px 10px; font-size: 11px;
           cursor: pointer; white-space: nowrap; }

@@ -4,17 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from compliance.applicability import applies, get_applicable_standards
 from compliance.checks.base import not_applicable as make_not_applicable
 from compliance.ingest import split_notes
 from compliance.models import ContextBundle
+from compliance.ruleset import Ruleset, get_ruleset
 
-from trainui.data import (
-    ALL_CHECKS, STANDARD_ORDER, STANDARD_TITLES,
-    STANDARD_TEXT, SECTIONS_FOR_STANDARD,
-)
+from trainui.data import SECTIONS_FOR_STANDARD
 from trainui.judges import ConfigurableRecordingJudge
-from trainui.paths import RULES_DIR
 
 
 def build_bundles(notes) -> dict[str, ContextBundle]:
@@ -27,12 +23,12 @@ def build_bundles(notes) -> dict[str, ContextBundle]:
     return bundles
 
 
-def evaluate_pdf_stream(pdf_path: Path, inner_judge):
+def evaluate_pdf_stream(pdf_path: Path, inner_judge, ruleset: Ruleset | None = None):
     """
     Generator yielding SSE-formatted strings as evaluation progresses.
 
     Event types:
-      init         — {total_notes, total_checks, pdf}
+      init         — {total_notes, total_checks, pdf, ruleset_id}
       note_start   — {note_index, note_type, member, service_date, first_page, total_checks}
       judge_start  — {note_index, standard_id}
       judge_done   — {note_index, standard_id}
@@ -42,6 +38,8 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
       error        — {message}
     """
     import json as _json
+
+    rs = ruleset or get_ruleset()
 
     def _sse(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {_json.dumps(data)}\n\n"
@@ -53,13 +51,19 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
         yield _sse("error", {"message": str(exc)})
         return
 
+    all_checks   = rs.checks()
     total_notes  = len(notes)
-    total_checks = len(ALL_CHECKS)
-    yield _sse("init", {"total_notes": total_notes, "total_checks": total_checks, "pdf": pdf_path.name})
+    total_checks = len(all_checks)
+    yield _sse("init", {
+        "total_notes":  total_notes,
+        "total_checks": total_checks,
+        "pdf":          pdf_path.name,
+        "ruleset_id":   rs.id,
+    })
 
     for ni, note in enumerate(notes):
         bundle         = bundles.get(note.header.member_name or "unknown")
-        applicable_ids = set(get_applicable_standards(note.note_type))
+        applicable_ids = set(rs.get_applicable_standards(note.note_type))
         h              = note.header
 
         yield _sse("note_start", {
@@ -72,7 +76,7 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
         })
 
         evaluated: dict[str, tuple] = {}
-        for check in ALL_CHECKS:
+        for check in all_checks:
             sid = check.standard_id
             if sid not in applicable_ids:
                 evaluated[sid] = (make_not_applicable(sid), [])
@@ -110,10 +114,10 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
 
             sections_searched = SECTIONS_FOR_STANDARD.get(sid, [])
             sections_missing  = [s for s in sections_searched if not note.sections.get(s, "").strip()]
-            appl              = applies(sid, note.note_type)
+            appl              = rs.applies(sid, note.note_type)
             card = {
                 "standard_id":       sid,
-                "title":             STANDARD_TITLES[sid],
+                "title":             rs.title(sid),
                 "applicability":     appl,
                 "verdict":           result.verdict,
                 "rationale":         result.rationale,
@@ -123,21 +127,21 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
                 "judge_calls":       actual_calls,
                 "sections_searched": sections_searched,
                 "sections_missing":  sections_missing,
-                "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
-                "payer_text":        STANDARD_TEXT.get(sid, ""),
+                "has_prompt_file":   (rs.rules_dir / "prompts" / f"{sid}.md").is_file(),
+                "payer_text":        rs.payer_text(sid),
             }
             yield _sse("check_done", {"note_index": ni, "card": card})
 
-        for sid in STANDARD_ORDER:
+        for sid in rs.standard_order:
             if sid in evaluated:
                 continue
-            appl = applies(sid, note.note_type)
+            appl = rs.applies(sid, note.note_type)
             if appl is not None:
                 continue
             sections_searched = SECTIONS_FOR_STANDARD.get(sid, [])
             card = {
                 "standard_id":       sid,
-                "title":             STANDARD_TITLES[sid],
+                "title":             rs.title(sid),
                 "applicability":     None,
                 "verdict":           "not_applicable",
                 "rationale":         f"Not applicable to {note.note_type} notes.",
@@ -147,8 +151,8 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
                 "judge_calls":       [],
                 "sections_searched": sections_searched,
                 "sections_missing":  [],
-                "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
-                "payer_text":        STANDARD_TEXT.get(sid, ""),
+                "has_prompt_file":   (rs.rules_dir / "prompts" / f"{sid}.md").is_file(),
+                "payer_text":        rs.payer_text(sid),
             }
             yield _sse("check_done", {"note_index": ni, "card": card})
 
@@ -181,11 +185,14 @@ def evaluate_pdf_stream(pdf_path: Path, inner_judge):
     yield _sse("done", {})
 
 
-def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) -> list[dict]:
+def evaluate_pdf(pdf_path: Path, inner_judge, *,
+                 note_index: int | None = None,
+                 ruleset: Ruleset | None = None) -> list[dict]:
     """
     Run all checks against every note in pdf_path (or only note_index if given).
     Returns a list of per-note dicts for JSON.
     """
+    rs      = ruleset or get_ruleset()
     notes   = split_notes(pdf_path)
     bundles = build_bundles(notes)
     note_results = []
@@ -197,10 +204,10 @@ def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) 
             continue
         note   = notes[ni]
         bundle = bundles.get(note.header.member_name or "unknown")
-        applicable_ids = set(get_applicable_standards(note.note_type))
+        applicable_ids = set(rs.get_applicable_standards(note.note_type))
 
         evaluated: dict[str, tuple] = {}
-        for check in ALL_CHECKS:
+        for check in rs.checks():
             sid = check.standard_id
             if sid not in applicable_ids:
                 continue
@@ -212,9 +219,9 @@ def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) 
             evaluated[sid] = (result, rj.calls)
 
         cards = []
-        for sid in STANDARD_ORDER:
-            title = STANDARD_TITLES[sid]
-            appl  = applies(sid, note.note_type)
+        for sid in rs.standard_order:
+            title = rs.title(sid)
+            appl  = rs.applies(sid, note.note_type)
             sections_searched = SECTIONS_FOR_STANDARD.get(sid, [])
             sections_missing  = [s for s in sections_searched if not note.sections.get(s, "").strip()]
 
@@ -231,8 +238,8 @@ def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) 
                     "judge_calls":       [],
                     "sections_searched": sections_searched,
                     "sections_missing":  sections_missing,
-                    "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
-                    "payer_text":        STANDARD_TEXT.get(sid, ""),
+                    "has_prompt_file":   (rs.rules_dir / "prompts" / f"{sid}.md").is_file(),
+                    "payer_text":        rs.payer_text(sid),
                 })
             elif sid in evaluated:
                 result, calls = evaluated[sid]
@@ -248,8 +255,8 @@ def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) 
                     "judge_calls":       calls,
                     "sections_searched": sections_searched,
                     "sections_missing":  sections_missing,
-                    "has_prompt_file":   (RULES_DIR / "prompts" / f"{sid}.md").is_file(),
-                    "payer_text":        STANDARD_TEXT.get(sid, ""),
+                    "has_prompt_file":   (rs.rules_dir / "prompts" / f"{sid}.md").is_file(),
+                    "payer_text":        rs.payer_text(sid),
                 })
             else:
                 cards.append({
@@ -265,7 +272,7 @@ def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) 
                     "sections_searched": sections_searched,
                     "sections_missing":  sections_missing,
                     "has_prompt_file":   False,
-                    "payer_text":        STANDARD_TEXT.get(sid, ""),
+                    "payer_text":        rs.payer_text(sid),
                 })
 
         h = note.header
@@ -294,6 +301,7 @@ def evaluate_pdf(pdf_path: Path, inner_judge, *, note_index: int | None = None) 
             "section_keys": sorted(note.sections.keys()),
             "header":       header_snapshot,
             "cards":        cards,
+            "ruleset_id":   rs.id,
         })
 
     return note_results

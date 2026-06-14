@@ -18,10 +18,15 @@ def cmd_audit(args: argparse.Namespace) -> None:
     from compliance.report.json_writer import write_jsonl
     from compliance.report.csv_writer import write_csv
     from compliance.report.html_writer import write_html
+    from compliance.ruleset import get_ruleset
 
     input_dir = Path(args.input)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Select ruleset
+    ruleset = get_ruleset(getattr(args, "ruleset", None))
+    print(f"Ruleset: {ruleset.label} ({ruleset.id})")
 
     # Select judge
     judge = None
@@ -35,7 +40,7 @@ def cmd_audit(args: argparse.Namespace) -> None:
     # else NullJudge (default)
 
     print(f"Auditing PDFs in {input_dir} ...")
-    reports = run_batch(input_dir, judge=judge)
+    reports = run_batch(input_dir, judge=judge, ruleset=ruleset)
 
     if not reports:
         print("No notes found.")
@@ -93,8 +98,10 @@ def main() -> None:
     audit_p = sub.add_parser("audit", help="Run compliance checks")
     audit_p.add_argument("--input",  required=True, help="Directory of input PDFs")
     audit_p.add_argument("--output", required=True, help="Output directory for reports")
-    audit_p.add_argument("--judge",  default="null", choices=["null", "claude"],
+    audit_p.add_argument("--judge",   default="null", choices=["null", "claude"],
                          help="Judge to use (default: null — no LLM)")
+    audit_p.add_argument("--ruleset", default=None,
+                         help="Ruleset ID to evaluate against (default: optum_commercial)")
     audit_p.add_argument("--all", action="store_true",
                          help="Include pass/N/A rows in CSV output")
 

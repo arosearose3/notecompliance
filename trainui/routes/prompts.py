@@ -1,4 +1,4 @@
-"""Tier 2 prompt routes: get, save, delete, test."""
+"""Tier 2 prompt routes: get, save, delete, test (per-ruleset)."""
 
 from __future__ import annotations
 
@@ -9,28 +9,39 @@ from compliance import config as cfg
 bp_prompts = Blueprint("prompts", __name__)
 
 
+def _ruleset():
+    return current_app.config["RULESET"]
+
+
 @bp_prompts.route("/api/prompts/<standard_id>")
 def api_get_prompt(standard_id: str):
-    override = cfg.get_prompt(standard_id)
+    rs = _ruleset()
+    override = rs.prompt(standard_id)
     return jsonify({"standard_id": standard_id, "prompt": override, "overridden": override is not None})
 
 
 @bp_prompts.route("/api/prompts/<standard_id>/save", methods=["POST"])
 def api_save_prompt(standard_id: str):
-    body = request.get_json(force=True)
+    rs     = _ruleset()
+    body   = request.get_json(force=True)
     prompt = body.get("prompt", "")
-    path = cfg.RULES_DIR / "prompts" / f"{standard_id}.md"
+    path   = rs.rules_dir / "prompts" / f"{standard_id}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(prompt, encoding="utf-8")
     cfg.invalidate(path)
+    from compliance.ruleset import invalidate_ruleset_cache
+    invalidate_ruleset_cache(rs.id)
     return jsonify({"ok": True})
 
 
 @bp_prompts.route("/api/prompts/<standard_id>/delete", methods=["POST"])
 def api_delete_prompt(standard_id: str):
-    path = cfg.RULES_DIR / "prompts" / f"{standard_id}.md"
+    rs   = _ruleset()
+    path = rs.rules_dir / "prompts" / f"{standard_id}.md"
     path.unlink(missing_ok=True)
     cfg.invalidate(path)
+    from compliance.ruleset import invalidate_ruleset_cache
+    invalidate_ruleset_cache(rs.id)
     return jsonify({"ok": True})
 
 

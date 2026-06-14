@@ -1,0 +1,6 @@
+# Numeric / string thresholds used by compliance checks.
+# Edit values here; changes are picked up on the next evaluation.
+
+# B1 — late entry: number of hours after service date that an entry must
+# include the "late entry" notation.
+late_entry_hours: 24

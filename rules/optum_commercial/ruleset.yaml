@@ -1,0 +1,105 @@
+id: optum_commercial
+label: "Optum / UBH Commercial"
+description: "Optum Provider Manual Treatment Record Content Standards (UBH network)."
+
+# standards: list in display order. title is the human label shown in the UI.
+# impl: optional dotted Python class path for code-varies overrides; omit to use shared default.
+standards:
+  - id: A1
+    title: "Member ID on each page"
+  - id: A2
+    title: "Demographics, contacts, consent"
+  - id: A3
+    title: "Encounter metadata (date, duration, clinician, diagnosis, service code)"
+  - id: A4
+    title: "Group session — subject covered"
+  - id: A5
+    title: "Family session — attendees and relationships"
+  - id: B1
+    title: "Late entry notation"
+  - id: B2
+    title: "Modification audit trail"
+  - id: C1
+    title: "Allergies and medical conditions"
+  - id: C2a
+    title: "Medication order types (standing/PRN/STAT)"
+  - id: C2b
+    title: "Medication date, dose, and frequency"
+  - id: C2c
+    title: "Medication informed consent"
+  - id: C2d
+    title: "Medication change/no-change rationale"
+  - id: C2e
+    title: "Discharge medication list with doses"
+  - id: D1
+    title: "Presenting problem, MSE, psychosocial, source"
+  - id: D2
+    title: "Special status assessment (SI/HI/SIB/elopement/harm)"
+  - id: D3
+    title: "Medical and psychiatric history"
+  - id: D4
+    title: "Abuse and trauma history"
+  - id: D5
+    title: "Adolescent sexual behavior history (ages 12-17)"
+  - id: D6
+    title: "Child/adolescent developmental history"
+  - id: D7
+    title: "Substance use history (age 12+)"
+  - id: D8
+    title: "DSM diagnosis consistent with assessment"
+  - id: D9
+    title: "Functional impairment documentation"
+  - id: E1
+    title: "Symptoms/problems tied to diagnosis"
+  - id: E2
+    title: "Problem prioritization; deferred items labelled"
+  - id: E3
+    title: "Level of care rationale linked to impairment"
+  - id: E4
+    title: "Member involvement in treatment planning"
+  - id: E5
+    title: "SMART goals (specific, behavioral, measurable, realistic)"
+  - id: E6
+    title: "Goal time frames"
+  - id: E7
+    title: "Progress toward goals"
+  - id: E8
+    title: "Rationale for estimated treatment length"
+  - id: E9
+    title: "Goal updates on revision"
+  - id: E10
+    title: "Re-evaluation when progress stalls"
+  - id: F1
+    title: "Clinician signature"
+  - id: F2
+    title: "Date of service"
+  - id: F3
+    title: "Telehealth documentation"
+  - id: F4
+    title: "Member strengths and limitations toward goals"
+  - id: F5
+    title: "Interventions consistent with treatment-plan goals"
+  - id: F6
+    title: "Follow-up dates"
+  - id: F7
+    title: "Missed appointment outreach documented"
+  - id: F8
+    title: "Time-based duration (start/stop or total)"
+  - id: G1
+    title: "Ongoing discharge planning (criteria, barriers, support)"
+  - id: H1
+    title: "Reason for treatment episode"
+  - id: H2
+    title: "Goals achieved or reasons not achieved"
+  - id: H3
+    title: "Specific aftercare plan"
+  - id: I1
+    title: "Coordination of care (or documented refusal)"
+  - id: I2
+    title: "Coordination at key milestones"
+  - id: J1
+    title: "Referrals to clinicians, services, community resources"
+  - id: K1
+    title: "Telehealth noted in record"
+  - id: K2
+    title: "State-specific telehealth requirements"

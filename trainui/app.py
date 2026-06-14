@@ -13,20 +13,24 @@ from trainui.paths import DEFAULT_OUTPUT_DIR, REPO_ROOT
 _INDEX_HTML = (REPO_ROOT / "trainui" / "templates" / "index.html").read_text(encoding="utf-8")
 
 
-def create_app(source_dir: Path, inner_judge, output_dir: Path | None = None):
+def create_app(source_dir: Path, inner_judge, output_dir: Path | None = None, ruleset=None):
     try:
-        from flask import Flask, jsonify
+        from flask import Flask
     except ImportError:
         sys.exit("Flask is required: pip install flask")
+
+    from compliance.ruleset import get_ruleset as _get_ruleset
+    active_ruleset = ruleset or _get_ruleset()
 
     output_dir = output_dir or DEFAULT_OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
     app = Flask(__name__)
     app.config["JSON_SORT_KEYS"] = False
-    app.config["SOURCE_DIR"]  = source_dir
-    app.config["OUTPUT_DIR"]  = output_dir
-    app.config["INNER_JUDGE"] = inner_judge
+    app.config["SOURCE_DIR"]     = source_dir
+    app.config["OUTPUT_DIR"]     = output_dir
+    app.config["INNER_JUDGE"]    = inner_judge
+    app.config["RULESET"]        = active_ruleset
 
     @app.route("/")
     def index():

@@ -8,9 +8,29 @@ let _currentNote   = null;
 let _currentCard   = null;
 let _corpus        = [];
 let _crMd          = "";
+let _activeRuleset = null;   // {id, label} of the active ruleset
 
 // ── Init — stream PDF list with per-file progress ─────────────────────────────
 async function init() {
+  // Load available rulesets and populate the selector
+  fetch("/api/rulesets").then(r => r.json()).then(data => {
+    _activeRuleset = {id: data.active, label: ""};
+    const sel = document.getElementById("ruleset-select");
+    if (sel) {
+      sel.innerHTML = "";
+      (data.rulesets || []).forEach(rs => {
+        const opt = document.createElement("option");
+        opt.value = rs.id;
+        opt.textContent = rs.label;
+        if (rs.id === data.active) { opt.selected = true; _activeRuleset.label = rs.label; }
+        sel.appendChild(opt);
+      });
+    }
+    // Update sub-label
+    const sub = document.getElementById("source-label");
+    if (sub && _activeRuleset.label) sub.textContent = _activeRuleset.label;
+  });
+
   // Load corpus in parallel while streaming PDFs
   fetch("/api/regression/corpus").then(r => r.json()).then(c => {
     _corpus = c;
